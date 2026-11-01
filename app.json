@@ -1,0 +1,24 @@
+{
+  "expo": {
+    "name": "RepoMangas",
+    "slug": "repomangas",
+    "scheme": "repomangas",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0E0E12",
+    "platforms": ["android"],
+    "android": {
+      "package": "com.repomangas.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#0E0E12",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "plugins": ["expo-router", "expo-sqlite", "expo-image", "expo-sharing"]
+  }
+}
