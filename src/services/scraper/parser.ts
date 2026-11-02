@@ -5,6 +5,14 @@ import type { LinkItem, ParsedEdition, ParsedRelease, ParsedVolume, PubStatus } 
 
 export const BASE = 'https://www.listadomanga.es';
 
+// listadomanga pone una imagen "Portada censurada" en src y la real en data-portada (la cambia con JS).
+function coverOf(img: Element | undefined): string | null {
+  if (!img) return null;
+  const real = img.attribs['data-portada'];
+  if (real) return /^https?:/.test(real) ? real : 'https://static.listadomanga.com/' + real.replace(/^\//, '');
+  return img.attribs.src ?? null;
+}
+
 const MONTHS: Record<string, number> = {
   enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6, julio: 7, agosto: 8,
   septiembre: 9, setiembre: 9, octubre: 10, noviembre: 11, diciembre: 12,
@@ -138,7 +146,7 @@ export function parseEdition(html: string, id: number): ParsedEdition | null {
     const number = num ? parseInt(num[1], 10) : ++idx;
     idx = Math.max(idx, number);
     used.add(number);
-    volumes.push({ number, title, release_date: date, price, pages, cover_url: img.attribs.src ?? null, is_pack: isPack ? 1 : 0, phase });
+    volumes.push({ number, title, release_date: date, price, pages, cover_url: coverOf(img), is_pack: isPack ? 1 : 0, phase });
   }
 
   const synH = findAll((e) => e.name === 'h2' && text(e).startsWith('Sinopsis de'), doc.children)[0];
@@ -214,7 +222,7 @@ export function parseCalendar(html: string): ParsedRelease[] {
       if (eid && img) {
         const title = clean(img.attribs.alt ?? '');
         const num = title.match(/n[º°o]\s*(\d+)\s*$/i);
-        out.push({ edition_id: eid, title, number: num ? parseInt(num[1], 10) : null, date, publisher, publisher_id: publisherId, cover_url: img.attribs.src ?? null });
+        out.push({ edition_id: eid, title, number: num ? parseInt(num[1], 10) : null, date, publisher, publisher_id: publisherId, cover_url: coverOf(img) });
       }
     }
   }
@@ -232,7 +240,7 @@ export function parseCollectionLinks(html: string): { title: string | null; item
     const img = findAll((x) => x.name === 'img', getChildren(a))[0];
     const name = clean(text(a) || img?.attribs.alt || '');
     const prev = items.get(eid);
-    if (!prev || (!prev.cover_url && img)) items.set(eid, { id: eid, name: name || prev?.name || '', cover_url: img?.attribs.src ?? prev?.cover_url ?? null });
+    if (!prev || (!prev.cover_url && img)) items.set(eid, { id: eid, name: name || prev?.name || '', cover_url: coverOf(img) ?? prev?.cover_url ?? null });
   }
   return { title: h1, items: [...items.values()].filter((i) => i.name) };
 }
