@@ -134,13 +134,9 @@ export function parseEdition(html: string, id: number): ParsedEdition | null {
       else extra.push(l);
     }
     const isPack = sec === 'pack' || /\b(pack|cofre|estuche|box\s?set|pack de inicio)\b/i.test(title + ' ' + extra.join(' '));
-    let number: number;
-    if (isPack) {
-      if (extra.length) title = `${title} \u2013 ${extra.join(' ')}`;
-      number = 1000 + (hash(title + (img.attribs.src ?? '')) % 900000);
-      while (used.has(number)) number++;
-    } else number = num ? parseInt(num[1], 10) : ++idx;
-    if (!isPack) idx = Math.max(idx, number);
+    if (isPack) continue;
+    const number = num ? parseInt(num[1], 10) : ++idx;
+    idx = Math.max(idx, number);
     used.add(number);
     volumes.push({ number, title, release_date: date, price, pages, cover_url: img.attribs.src ?? null, is_pack: isPack ? 1 : 0, phase });
   }

@@ -29,7 +29,6 @@ export default function EditionScreen() {
   const preparing = useMemo(() => regular.filter((v) => v.phase === 1), [regular]);
   const unreleased = useMemo(() => regular.filter((v) => v.phase === 2), [regular]);
   const dead = useRef(false);
-  const packs = useMemo(() => allVols.filter((v) => v.is_pack), [allVols]);
   const { data: authors } = useQuery(() => repo.getEditionAuthors(id), [id], []);
   const firstAuthor = authors[0]?.id;
   const { data: more } = useQuery(
@@ -130,18 +129,6 @@ export default function EditionScreen() {
 
   const footer = (
     <View>
-      {packs.length > 0 && (
-        <View>
-          <SectionTitle>Packs y Cofres Especiales</SectionTitle>
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 2 }}>
-            {packs.map((v) => (
-              <View key={v.id} style={{ width: '33.33%' }}>
-                <VolumeTile v={v} onPress={onPress} onLongPress={onLong} />
-              </View>
-            ))}
-          </View>
-        </View>
-      )}
       {more.length > 0 && (
     <View>
       <SectionTitle>Más obras de este autor</SectionTitle>
