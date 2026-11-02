@@ -13,6 +13,23 @@ function coverOf(img: Element | undefined): string | null {
   return img.attribs.src ?? null;
 }
 
+/**
+ * Número de tomo a partir del título/alt. El nombre de la serie puede llevar su propio "nº"
+ * (p. ej. "Kaiju Nº8 nº1"), así que se prefiere el que cierra el texto y, si no, el último.
+ */
+export function volumeNumber(...texts: (string | undefined)[]): number | null {
+  const cands = texts.map((t) => clean(t ?? '')).filter(Boolean);
+  for (const t of cands) {
+    const m = t.match(/n[\u00ba\u00b0o]\.?\s*(\d+)\s*$/i);
+    if (m) return parseInt(m[1], 10);
+  }
+  for (const t of cands) {
+    const all = [...t.matchAll(/n[\u00ba\u00b0o]\.?\s*(\d+)/gi)];
+    if (all.length) return parseInt(all[all.length - 1][1], 10);
+  }
+  return null;
+}
+
 const MONTHS: Record<string, number> = {
   enero: 1, febrero: 2, marzo: 3, abril: 4, mayo: 5, junio: 6, julio: 7, agosto: 8,
   septiembre: 9, setiembre: 9, octubre: 10, noviembre: 11, diciembre: 12,
@@ -128,7 +145,7 @@ export function parseEdition(html: string, id: number): ParsedEdition | null {
     const img = findAll((x) => x.name === 'img' && hasClass(x, 'portada'), getChildren(td))[0];
     const lines = segments(td).map((sg) => clean(sg.map((n) => textContent(n)).join(''))).filter(Boolean);
     let title = lines[0] ?? (img.attribs.alt ?? '');
-    const num = (title + ' ' + (img.attribs.alt ?? '')).match(/n[\u00ba\u00b0o]\s*(\d+)/i);
+    const parsedNum = volumeNumber(title, img.attribs.alt);
     let pages: number | null = null;
     let price: number | null = null;
     let date: string | null = null;
@@ -143,10 +160,14 @@ export function parseEdition(html: string, id: number): ParsedEdition | null {
     }
     const isPack = sec === 'pack' || /\b(pack|cofre|estuche|box\s?set|pack de inicio)\b/i.test(title + ' ' + extra.join(' '));
     if (isPack) continue;
-    const number = num ? parseInt(num[1], 10) : ++idx;
+    const number = parsedNum ?? ++idx;
     idx = Math.max(idx, number);
     used.add(number);
     volumes.push({ number, title, release_date: date, price, pages, cover_url: coverOf(img), is_pack: isPack ? 1 : 0, phase });
+  }
+  // Red de seguridad: si casi todos los tomos comparten número, la extracción falló -> orden de la página.
+  if (volumes.length > 2 && new Set(volumes.map((v) => v.number)).size * 2 < volumes.length) {
+    volumes.forEach((v, i) => { v.number = i + 1; });
   }
 
   const synH = findAll((e) => e.name === 'h2' && text(e).startsWith('Sinopsis de'), doc.children)[0];
@@ -221,8 +242,7 @@ export function parseCalendar(html: string): ParsedRelease[] {
       const img = findAll((x) => x.name === 'img', getChildren(n))[0];
       if (eid && img) {
         const title = clean(img.attribs.alt ?? '');
-        const num = title.match(/n[º°o]\s*(\d+)\s*$/i);
-        out.push({ edition_id: eid, title, number: num ? parseInt(num[1], 10) : null, date, publisher, publisher_id: publisherId, cover_url: coverOf(img) });
+        out.push({ edition_id: eid, title, number: volumeNumber(title), date, publisher, publisher_id: publisherId, cover_url: coverOf(img) });
       }
     }
   }
