@@ -14,6 +14,7 @@ export interface Volume {
   read: number;
   tag: string | null;
   is_pack: number;
+  phase: number; // 0 editado · 1 en preparación · 2 no editado
 }
 
 export interface EditionSummary {
@@ -63,6 +64,7 @@ export interface ParsedVolume {
   pages: number | null;
   cover_url: string | null;
   is_pack: number;
+  phase: number;
 }
 
 export interface ParsedEdition {

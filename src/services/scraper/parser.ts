@@ -101,6 +101,7 @@ export function parseEdition(html: string, id: number): ParsedEdition | null {
   const volumes: ParsedVolume[] = [];
   type Sec = 'regular' | 'pack' | 'skip';
   let sec: Sec = 'skip';
+  let phase = 0; // 0 editado · 1 en preparación · 2 no editado
   const used = new Set<number>();
   const nodes = findAll(
     (e) => e.name === 'h2' || (e.name === 'td' && hasClass(e, 'cen') &&
@@ -109,7 +110,8 @@ export function parseEdition(html: string, id: number): ParsedEdition | null {
   for (const td of nodes) {
     if (td.name === 'h2') {
       const h = text(td).toLowerCase();
-      if (h.startsWith('n\u00fameros editados') || h.startsWith('n\u00fameros en preparaci')) {
+      if (h.startsWith('n\u00fameros editados') || h.startsWith('n\u00fameros en preparaci') || h.startsWith('n\u00fameros no editados')) {
+        phase = h.startsWith('n\u00fameros editados') ? 0 : h.startsWith('n\u00fameros en preparaci') ? 1 : 2;
         sec = /\((ediciones especiales|packs?|portadas alternativas)/.test(h) ? 'pack' : 'regular';
       } else sec = 'skip';
       continue;
@@ -140,11 +142,24 @@ export function parseEdition(html: string, id: number): ParsedEdition | null {
     } else number = num ? parseInt(num[1], 10) : ++idx;
     if (!isPack) idx = Math.max(idx, number);
     used.add(number);
-    volumes.push({ number, title, release_date: date, price, pages, cover_url: img.attribs.src ?? null, is_pack: isPack ? 1 : 0 });
+    volumes.push({ number, title, release_date: date, price, pages, cover_url: img.attribs.src ?? null, is_pack: isPack ? 1 : 0, phase });
   }
 
   const synH = findAll((e) => e.name === 'h2' && text(e).startsWith('Sinopsis de'), doc.children)[0];
   const synText = synH?.parent ? text((synH.parent as Element).children.filter((c) => c !== synH)).trim() : '';
+
+  const vols = dedupe(volumes);
+  const edited = vols.filter((v) => !v.is_pack && v.phase === 0).length;
+  const pending = vols.filter((v) => !v.is_pack && v.phase > 0).length;
+  const total_jp = jp ? parseInt(jp[0], 10) : null;
+  const siteEs = esF ? parseStatus(esF.text) : 'Desconocido';
+  const status_jp = jpF ? parseStatus(jpF.text) : null;
+  // España: abierta mientras queden números en preparación / sin editar (o menos tomos que el original)
+  let status: PubStatus = siteEs;
+  if (edited > 0 || pending > 0) {
+    if (pending > 0 || (total_jp != null && edited < total_jp)) status = 'Abierta';
+    else if (siteEs === 'Desconocido' || siteEs === 'Abierta') status = status_jp === 'Abierta' ? 'Abierta' : 'Cerrada';
+  }
 
   return {
     id, name, work_title,
@@ -156,13 +171,13 @@ export function parseEdition(html: string, id: number): ParsedEdition | null {
     format: fmt ? fmt.text.replace(/\s*\(.*$/, '').trim().split(/\s+/).slice(0, 1).join(' ') || null : null,
     size: sizeM ? sizeM[1].replace(/\s/g, '') : null,
     reading_dir: f('Sentido')?.text ?? null,
-    total_jp: jp ? parseInt(jp[0], 10) : null,
-    total_es: es ? parseInt(es[0], 10) : null,
-    status: esF ? parseStatus(esF.text) : 'Desconocido',
-    status_jp: jpF ? parseStatus(jpF.text) : null,
+    total_jp,
+    total_es: edited > 0 || pending > 0 ? edited : es ? parseInt(es[0], 10) : null,
+    status,
+    status_jp,
     origin_lang: jpKey ? jpKey.replace(/^números en /i, '').toLowerCase() : null,
     synopsis: synText || null,
-    volumes: dedupe(volumes),
+    volumes: vols,
   };
 }
 

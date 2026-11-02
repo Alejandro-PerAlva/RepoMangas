@@ -1,4 +1,5 @@
 import type { EditionSummary } from '../types';
+import { score } from './search';
 
 export type CollState = 'all' | 'gaps' | 'uptodate' | 'complete' | 'unread';
 export type SortKey = 'alpha' | 'progress' | 'recent' | 'price';
@@ -31,9 +32,14 @@ const upToDate = (e: EditionSummary) => e.owned_count > 0 && e.owned_count >= e.
 export const progress = (e: EditionSummary) => (total(e) ? e.owned_count / total(e) : 0);
 
 export function applyFilters(list: EditionSummary[], f: Filters, q = ''): EditionSummary[] {
-  const s = q.trim().toLowerCase();
+  const s = q.trim();
+  const sc = new Map<number, number>();
   const out = list.filter((e) => {
-    if (s && !(e.name.toLowerCase().includes(s) || (e.authors ?? '').toLowerCase().includes(s) || (e.publisher ?? '').toLowerCase().includes(s))) return false;
+    if (s) {
+      const v = Math.max(score(e.name, s) * 3, score(`${e.name} ${e.authors ?? ''} ${e.publisher ?? ''}`, s));
+      if (!v) return false;
+      sc.set(e.id, v);
+    }
     if (f.publisher && e.publisher !== f.publisher) return false;
     if (f.author && !(e.authors ?? '').includes(f.author)) return false;
     if (f.genre && e.genre !== f.genre) return false;
@@ -53,7 +59,7 @@ export function applyFilters(list: EditionSummary[], f: Filters, q = ''): Editio
     recent: (a, b) => b.last_added - a.last_added,
     price: (a, b) => b.price_owned - a.price_owned,
   };
-  return out.sort(cmp[f.sort]);
+  return out.sort(s ? (a, b) => (sc.get(b.id) ?? 0) - (sc.get(a.id) ?? 0) || cmp[f.sort](a, b) : cmp[f.sort]);
 }
 
 export function distinct(list: EditionSummary[]) {

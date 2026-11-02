@@ -9,6 +9,7 @@ import { EditionRow } from '../../src/components/EditionRow';
 import { FilterBar } from '../../src/components/FilterBar';
 import { Empty, SectionTitle } from '../../src/components/ui';
 import { C } from '../../src/theme';
+import { norm, rank } from '../../src/lib/search';
 import { DEFAULT_FILTERS, applyFilters, type Filters } from '../../src/lib/filters';
 import type { EditionSummary, LinkItem } from '../../src/types';
 
@@ -59,10 +60,16 @@ export default function Explorar() {
     if (q.trim().length < 2) { setRemote(null); return; }
     setBusy(true);
     const t = setTimeout(() => {
-      search(q.trim()).then((r) => { setRemote(r); setErr(null); }).catch(() => setErr('Sin conexión: mostrando solo resultados locales'))
-        .finally(() => setBusy(false));
-    }, 400);
-    return () => clearTimeout(t);
+      const qq = q.trim();
+      search(qq).then(async (r) => {
+        if (!alive) return;
+        if (!r.editions.length && !r.authors.length && norm(qq) !== qq.toLowerCase()) r = await search(norm(qq));
+        if (alive) { setRemote({ editions: rank(r.editions, qq, (x) => x.name), authors: rank(r.authors, qq, (x) => x.name) }); setErr(null); }
+      }).catch(() => alive && setErr('Sin conexión: mostrando solo tu colección'))
+        .finally(() => alive && setBusy(false));
+    }, 350);
+    let alive = true;
+    return () => { alive = false; clearTimeout(t); setBusy(false); };
   }, [q]);
 
   const onSearchAuthors = useCallback((t: string) => {
@@ -82,9 +89,9 @@ export default function Explorar() {
 
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = [];
-    const t = q.trim().toLowerCase();
+    const t = q.trim();
     if (t.length >= 2 && !filters.publisher) {
-      const hits = pubs.filter((p) => p.name.toLowerCase().includes(t)).slice(0, 5);
+      const hits = rank(pubs, t, (p) => p.name).slice(0, 5);
       if (hits.length) {
         out.push({ k: 'tp', kind: 'title', text: 'Editoriales' });
         hits.forEach((p) => out.push({ k: 'p' + p.id, kind: 'publisher', item: { id: p.id, name: p.name, cover_url: null } }));
@@ -95,7 +102,7 @@ export default function Explorar() {
       remote.authors.slice(0, 6).forEach((a) => out.push({ k: 'a' + a.id, kind: 'author', item: a }));
     }
     if (filtered.length) {
-      out.push({ k: 'tl', kind: 'title', text: q || filters.publisher || filters.author ? 'En tu dispositivo' : 'Catálogo local' });
+      out.push({ k: 'tl', kind: 'title', text: q || filters.publisher || filters.author ? 'En tu colección' : 'Tu colección' });
       filtered.forEach((e) => out.push({ k: 'e' + e.id, kind: 'edition', ed: e }));
     }
     if (!hasLocalOnlyFilter) {
@@ -107,7 +114,7 @@ export default function Explorar() {
       } else if (filters.publisher) eds = pubItems;
       else if (filters.author) eds = authItems;
       else eds = remote?.editions ?? [];
-      if (t && (filters.publisher || filters.author)) eds = eds.filter((e) => e.name.toLowerCase().includes(t));
+      if (t && (filters.publisher || filters.author)) eds = rank(eds, t, (e) => e.name);
       eds = eds.filter((e) => !localIds.has(e.id));
       if (eds.length) {
         out.push({ k: 'tr', kind: 'title', text: 'Listado Manga' });
@@ -139,7 +146,7 @@ export default function Explorar() {
         onSearchAuthors={onSearchAuthors} authorLoading={authorBusy}
       />
       {err && <Text style={{ color: C.amber, marginHorizontal: 12, fontSize: 12 }}>{err}</Text>}
-      {hasLocalOnlyFilter && <Text style={{ color: C.dim, marginHorizontal: 12, fontSize: 11 }}>Formato, estado y género filtran solo series ya descargadas.</Text>}
+      {hasLocalOnlyFilter && <Text style={{ color: C.dim, marginHorizontal: 12, fontSize: 11 }}>Formato, estado y género filtran solo tu colección.</Text>}
       <FlashList
         data={rows}
         keyExtractor={(r) => r.k}
@@ -153,7 +160,7 @@ export default function Explorar() {
             </Pressable>
           );
         }}
-        ListEmptyComponent={<Empty text={busy || listBusy ? 'Buscando…' : q.length >= 2 || filters.publisher || filters.author ? 'Sin resultados' : 'Busca por título, autor o editorial, o usa los filtros. Para tener todo el catálogo sin conexión, descárgalo desde Perfil.'} />}
+        ListEmptyComponent={<Empty text={busy || listBusy ? 'Buscando…' : q.length >= 2 || filters.publisher || filters.author ? 'Sin resultados' : 'Busca por título, autor o editorial, o usa los filtros.'} />}
         contentContainerStyle={{ paddingBottom: 24 }}
         keyboardShouldPersistTaps="handled"
       />

@@ -11,8 +11,8 @@ export function useQuery<T>(fn: () => Promise<T>, deps: unknown[], initial: T) {
   const last = useRef(0);
   useEffect(() => {
     let alive = true;
-    // throttle refreshes caused by bursts of DB writes (e.g. the global catalog download)
-    const wait = Math.max(0, last.current + 800 - Date.now());
+    // light throttle for bursts of DB writes
+    const wait = Math.max(0, last.current + 120 - Date.now());
     const t = setTimeout(() => {
       last.current = Date.now();
       run()

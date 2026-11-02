@@ -22,7 +22,6 @@ export default function TabsLayout() {
       <Tabs.Screen name="novedades" options={{ title: 'Novedades', tabBarIcon: icon('sparkles') }} />
       <Tabs.Screen name="explorar" options={{ title: 'Explorar', tabBarIcon: icon('search') }} />
       <Tabs.Screen name="deseos" options={{ title: 'Deseos', tabBarIcon: icon('star') }} />
-      <Tabs.Screen name="perfil" options={{ title: 'Perfil', tabBarIcon: icon('person') }} />
     </Tabs>
   );
 }

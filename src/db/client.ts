@@ -106,6 +106,13 @@ export function getDb(): Promise<SQLite.SQLiteDatabase> {
         // v1 scraped unedited volumes by mistake: drop untouched ones and force re-scrape
         await db.execAsync('DELETE FROM volumes WHERE id NOT IN (SELECT volume_id FROM user_volume_state); UPDATE editions SET scraped_at = 0; PRAGMA user_version = 2;');
       }
+      if (v < 4) {
+        const cols = await db.getAllAsync<{ name: string }>('PRAGMA table_info(volumes)');
+        if (!cols.some((c) => c.name === 'phase')) await db.execAsync('ALTER TABLE volumes ADD COLUMN phase INTEGER NOT NULL DEFAULT 0');
+        // re-scrape on next open so every volume gets its section (editado / preparación / no editado)
+        await db.execAsync('UPDATE editions SET scraped_at = 0; PRAGMA user_version = 4;');
+      }
+      await db.execAsync('CREATE INDEX IF NOT EXISTS idx_vol_ed_pack ON volumes(edition_id, is_pack, phase);');
       return db;
     })();
   }

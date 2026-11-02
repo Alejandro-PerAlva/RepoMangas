@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
@@ -24,7 +24,11 @@ export default function EditionScreen() {
   const { data: ed } = useQuery(() => repo.getEdition(id), [id], null);
   const { data: meta } = useQuery(() => repo.getEditionMeta(id), [id], null);
   const { data: allVols } = useQuery(() => repo.listVolumes(id), [id], [] as Volume[]);
-  const vols = useMemo(() => allVols.filter((v) => !v.is_pack), [allVols]);
+  const regular = useMemo(() => allVols.filter((v) => !v.is_pack), [allVols]);
+  const edited = useMemo(() => regular.filter((v) => v.phase === 0), [regular]);
+  const preparing = useMemo(() => regular.filter((v) => v.phase === 1), [regular]);
+  const unreleased = useMemo(() => regular.filter((v) => v.phase === 2), [regular]);
+  const dead = useRef(false);
   const packs = useMemo(() => allVols.filter((v) => v.is_pack), [allVols]);
   const { data: authors } = useQuery(() => repo.getEditionAuthors(id), [id], []);
   const firstAuthor = authors[0]?.id;
@@ -36,17 +40,37 @@ export default function EditionScreen() {
     setLoading(true); setError(null);
     try {
       await ensureEdition(id, force);
+      if (dead.current) { repo.purgeEditionIfUnused(id); return; }
       // refresh ongoing series in the background when the stored data is older than 3 days
       const m = await repo.getEditionMeta(id);
       if (!force && m && Date.now() - m.scraped_at > 3 * 86400_000) scrapeEdition(id).catch(() => {});
     } catch { setError('No se pudo cargar. Comprueba tu conexión.'); }
     setLoading(false);
   }, [id]);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    dead.current = false;
+    load();
+    // al salir, la ficha descargada se borra salvo que esté en colección, deseos o seguida
+    return () => { dead.current = true; repo.purgeEditionIfUnused(id).catch(() => {}); };
+  }, [load, id]);
   useEffect(() => { if (firstAuthor) ensureAuthor(firstAuthor).catch(() => {}); }, [firstAuthor]);
 
   const onPress = useCallback((v: Volume) => { tap(); setSel(v); }, []);
-  const onLong = useCallback((v: Volume) => { thump(); repo.setVolumeFlag(v.id, 'owned', !v.owned); }, []);
+  const onLong = useCallback((v: Volume) => { if (v.phase !== 0 && !v.is_pack) return; thump(); repo.setVolumeFlag(v.id, 'owned', !v.owned); }, []);
+
+  type Row = { k: string; t: 'title' | 'grid' | 'empty'; text?: string; items?: Volume[] };
+  const rows = useMemo<Row[]>(() => {
+    const out: Row[] = [];
+    const add = (key: string, label: string, list: Volume[]) => {
+      if (!list.length) return;
+      out.push({ k: key, t: 'title', text: `${label} (${list.length})` });
+      for (let i = 0; i < list.length; i += 3) out.push({ k: `${key}${i}`, t: 'grid', items: list.slice(i, i + 3) });
+    };
+    add('e', 'Números editados', edited);
+    add('p', 'Números en preparación', preparing);
+    add('u', 'Números no editados', unreleased);
+    return out;
+  }, [edited, preparing, unreleased]);
 
   const bulk = (a: repo.BulkAction) => { tap(); setMenu(false); repo.bulkAction(id, a); };
 
@@ -57,7 +81,7 @@ export default function EditionScreen() {
         <View style={{ flex: 1, marginLeft: 12 }}>
           <Text style={{ color: C.text, fontSize: 18, fontWeight: '800' }}>{ed.name}</Text>
           <Text style={{ color: C.dim, marginTop: 4 }}>
-            {ed.owned_count}/{Math.max(ed.vol_count, ed.total_es ?? 0)} tomos · {ed.read_count} leídos
+            {ed.owned_count}/{ed.vol_count} tomos · {ed.read_count} leídos
           </Text>
           <View style={{ marginTop: 8 }}><ProgressBar value={progress(ed)} /></View>
           {meta?.original_title ? <Text style={{ color: C.dim, fontSize: 12, marginTop: 6 }} numberOfLines={2}>{meta.original_title}</Text> : null}
@@ -67,16 +91,18 @@ export default function EditionScreen() {
         <StatusPill region="España" status={ed.status} count={ed.total_es} />
         <StatusPill region={ed.origin_lang && ed.origin_lang !== 'japonés' ? ed.origin_lang : 'Japón'} status={ed.status_jp} count={ed.total_jp} />
       </View>
-      {ed.total_jp && ed.total_es && ed.total_jp > ed.total_es && ed.status === 'Abierta' ? (
-        <Text style={{ color: C.dim, fontSize: 12, marginTop: 6 }}>Quedan {ed.total_jp - ed.total_es} tomos por llegar a España.</Text>
+      {preparing.length + unreleased.length > 0 ? (
+        <Text style={{ color: C.dim, fontSize: 12, marginTop: 6 }}>
+          {edited.length} editados{preparing.length ? ` · ${preparing.length} en preparación` : ''}{unreleased.length ? ` · ${unreleased.length} sin editar` : ''}
+        </Text>
       ) : ed.total_jp && ed.total_es && ed.total_jp === ed.total_es ? (
         <Text style={{ color: C.dim, fontSize: 12, marginTop: 6 }}>Edición al día con el original.</Text>
       ) : null}
       <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 12, rowGap: 6 }}>
         {authors.map((a) => <Chip key={a.id} icon="person" label={a.name} onPress={() => router.push(`/author/${a.id}`)} />)}
         {ed.publisher_id && ed.publisher ? <Chip icon="business" label={ed.publisher} onPress={() => router.push(`/publisher/${ed.publisher_id}`)} /> : null}
-        {ed.format ? <Chip icon="book" label={`${ed.format}${ed.size ? ` ${ed.size}` : ''}`} onPress={() => router.push({ pathname: '/explorar', params: { format: ed.format! } })} /> : null}
-        {ed.genre ? <Chip icon="pricetag" label={ed.genre} onPress={() => router.push({ pathname: '/explorar', params: { genre: ed.genre! } })} /> : null}
+        {ed.format ? <Chip icon="book" label={`${ed.format}${ed.size ? ` ${ed.size}` : ''}`} /> : null}
+        {ed.genre ? <Chip icon="pricetag" label={ed.genre} /> : null}
         {meta?.reading_dir ? <Chip icon="arrow-forward" label={`Lectura ${meta.reading_dir.toLowerCase()}`} /> : null}
       </View>
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
@@ -138,10 +164,17 @@ export default function EditionScreen() {
     <View style={{ flex: 1 }}>
       <Stack.Screen options={{ title: ed?.work_title ?? 'Serie' }} />
       <FlashList
-        data={vols}
-        numColumns={3}
-        keyExtractor={(v) => String(v.id)}
-        renderItem={({ item }) => <VolumeTile v={item} onPress={onPress} onLongPress={onLong} />}
+        data={rows}
+        keyExtractor={(r) => r.k}
+        getItemType={(r) => r.t}
+        renderItem={({ item: r }) => r.t === 'title' ? <SectionTitle>{r.text}</SectionTitle> : (
+          <View style={{ flexDirection: 'row' }}>
+            {[0, 1, 2].map((i) => {
+              const v = r.items?.[i];
+              return <View key={i} style={{ flex: 1 }}>{v ? <VolumeTile v={v} onPress={onPress} onLongPress={onLong} /> : null}</View>;
+            })}
+          </View>
+        )}
         ListHeaderComponent={header}
         ListFooterComponent={footer}
         ListEmptyComponent={

@@ -14,7 +14,7 @@ SELECT e.id, e.name, w.title AS work_title, e.publisher_id, e.publisher, e.forma
   w.genre, e.status, e.status_jp, e.origin_lang, e.total_jp, e.followed, e.total_es,
   (SELECT group_concat(a.name, ', ') FROM (SELECT DISTINCT a.name FROM work_authors wa JOIN authors a ON a.id = wa.author_id WHERE wa.work_id = w.id) a) AS authors,
   (SELECT cover_url FROM volumes v WHERE v.is_pack = 0 AND v.edition_id = e.id ORDER BY v.number LIMIT 1) AS cover_url,
-  (SELECT COUNT(*) FROM volumes v WHERE v.is_pack = 0 AND v.edition_id = e.id) AS vol_count,
+  (SELECT COUNT(*) FROM volumes v WHERE v.is_pack = 0 AND v.phase = 0 AND v.edition_id = e.id) AS vol_count,
   (SELECT COUNT(*) FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id WHERE v.is_pack = 0 AND v.edition_id = e.id AND s.owned = 1) AS owned_count,
   (SELECT COUNT(*) FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id WHERE v.is_pack = 0 AND v.edition_id = e.id AND s.read = 1) AS read_count,
   (SELECT COUNT(*) FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id WHERE v.is_pack = 0 AND v.edition_id = e.id AND s.wishlisted = 1) AS wish_count,
@@ -92,22 +92,54 @@ export async function saveEdition(p: ParsedEdition): Promise<number[]> {
          status=excluded.status, total_jp=excluded.total_jp, total_es=excluded.total_es, status_jp=excluded.status_jp,
          origin_lang=excluded.origin_lang, scraped_at=excluded.scraped_at`,
       p.id, workId, p.name, p.publisher_id, p.publisher, p.format, p.size, p.reading_dir, p.status, p.total_jp, p.total_es, p.status_jp, p.origin_lang, now());
+    const known = new Set(
+      (await db.getAllAsync<{ number: number }>('SELECT number FROM volumes WHERE edition_id = ?', p.id)).map((r) => r.number));
     for (const v of p.volumes) {
-      const ex = await db.getFirstAsync<{ id: number }>('SELECT id FROM volumes WHERE edition_id = ? AND number = ?', p.id, v.number);
-      if (ex) {
-        await db.runAsync(
-          'UPDATE volumes SET title=?, release_date=?, price=?, pages=?, cover_url=?, is_pack=? WHERE id=?',
-          v.title, v.release_date, v.price, v.pages, v.cover_url, v.is_pack, ex.id);
-      } else {
-        const r = await db.runAsync(
-          'INSERT INTO volumes (edition_id, number, title, release_date, price, pages, cover_url, is_pack) VALUES (?,?,?,?,?,?,?,?)',
-          p.id, v.number, v.title, v.release_date, v.price, v.pages, v.cover_url, v.is_pack);
-        if (!v.is_pack) newVolumeIds.push(r.lastInsertRowId);
-      }
+      const r = await db.runAsync(
+        `INSERT INTO volumes (edition_id, number, title, release_date, price, pages, cover_url, is_pack, phase)
+         VALUES (?,?,?,?,?,?,?,?,?)
+         ON CONFLICT(edition_id, number) DO UPDATE SET title=excluded.title, release_date=excluded.release_date,
+           price=excluded.price, pages=excluded.pages, cover_url=excluded.cover_url, is_pack=excluded.is_pack, phase=excluded.phase`,
+        p.id, v.number, v.title, v.release_date, v.price, v.pages, v.cover_url, v.is_pack, v.phase);
+      if (!known.has(v.number) && !v.is_pack && v.phase === 0) newVolumeIds.push(r.lastInsertRowId);
     }
   });
   bump();
   return newVolumeIds;
+}
+
+/** Removes a downloaded edition (and orphaned work/author links) unless the user keeps it: owned, wishlisted, read or followed. */
+export async function purgeEditionIfUnused(id: number) {
+  const db = await getDb();
+  const keep = await db.getFirstAsync<{ n: number }>(
+    `SELECT (SELECT followed FROM editions WHERE id = ?1) +
+       (SELECT COUNT(*) FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id
+        WHERE v.edition_id = ?1 AND (s.owned = 1 OR s.wishlisted = 1 OR s.read = 1)) AS n`, id);
+  if (!keep || keep.n > 0) return;
+  await db.withTransactionAsync(() => purgeIds(db, [id]));
+  bump();
+}
+
+/** Startup cleanup: drop every downloaded edition the user does not keep. */
+export async function purgeUnusedEditions() {
+  const db = await getDb();
+  const ids = (await db.getAllAsync<{ id: number }>(
+    `SELECT e.id FROM editions e WHERE e.followed = 0 AND NOT EXISTS (
+       SELECT 1 FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id
+       WHERE v.edition_id = e.id AND (s.owned = 1 OR s.wishlisted = 1 OR s.read = 1))`)).map((r) => r.id);
+  if (!ids.length) return;
+  await db.withTransactionAsync(() => purgeIds(db, ids));
+  bump();
+}
+
+async function purgeIds(db: Awaited<ReturnType<typeof getDb>>, ids: number[]) {
+  const list = ids.map(Number).join(',');
+  await db.execAsync(`
+    DELETE FROM user_volume_state WHERE volume_id IN (SELECT id FROM volumes WHERE edition_id IN (${list}));
+    DELETE FROM volumes WHERE edition_id IN (${list});
+    DELETE FROM editions WHERE id IN (${list});
+    DELETE FROM works WHERE id NOT IN (SELECT work_id FROM editions);
+    DELETE FROM work_authors WHERE work_id NOT IN (SELECT id FROM works);`);
 }
 
 export async function editionIsCached(id: number): Promise<boolean> {

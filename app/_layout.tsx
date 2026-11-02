@@ -4,11 +4,12 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { C } from '../src/theme';
 import { getDb } from '../src/db/client';
+import { purgeUnusedEditions } from '../src/db/repo';
 import { syncNovedades } from '../src/services/scraper';
 
 export default function RootLayout() {
   useEffect(() => {
-    getDb().then(() => syncNovedades()).catch(() => {});
+    getDb().then(() => purgeUnusedEditions()).then(() => syncNovedades()).catch(() => {});
   }, []);
   return (
     <GestureHandlerRootView style={{ flex: 1, backgroundColor: C.bg }}>
