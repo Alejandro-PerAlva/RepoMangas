@@ -1,55 +1,46 @@
-import React, { useMemo } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Text, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
-import { router } from 'expo-router';
 import { useQuery } from '../../src/db/useQuery';
 import * as repo from '../../src/db/repo';
-import { Chip, Cover, Empty } from '../../src/components/ui';
+import { EditionRow } from '../../src/components/EditionRow';
+import { FilterBar } from '../../src/components/FilterBar';
+import { Empty } from '../../src/components/ui';
 import { C } from '../../src/theme';
-import { eur, fmtDate } from '../../src/lib/filters';
-import { tap } from '../../src/lib/actions';
+import { DEFAULT_FILTERS, applyFilters, eur } from '../../src/lib/filters';
+
+const WISHED = `WHERE e.followed = 1 AND EXISTS (SELECT 1 FROM volumes v LEFT JOIN user_volume_state s ON s.volume_id = v.id
+  WHERE v.edition_id = e.id AND v.is_pack = 0 AND v.phase IN (0,1) AND COALESCE(s.owned,0) = 0)`;
 
 export default function Deseos() {
-  const { data } = useQuery(repo.listWishlist, [], []);
-  const today = repo.todayISO();
-  const rows = useMemo(() => {
-    const shop = data.filter((v) => v.release_date && v.release_date <= today);
-    const soon = data.filter((v) => !v.release_date || v.release_date > today);
-    const sum = (a: typeof data) => a.reduce((t, v) => t + (v.price ?? 0), 0);
-    return [
-      ...(shop.length ? [{ k: 'h1', h: `Ya a la venta · ${shop.length} · ${eur(sum(shop))}` }, ...shop.map((v) => ({ k: 'v' + v.id, v }))] : []),
-      ...(soon.length ? [{ k: 'h2', h: `Próximamente / sin fecha · ${soon.length} · ${eur(sum(soon))}` }, ...soon.map((v) => ({ k: 'v' + v.id, v }))] : []),
-    ] as { k: string; h?: string; v?: (typeof data)[number] }[];
-  }, [data, today]);
+  const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  const { data: all } = useQuery(() => repo.listEditions(WISHED), [], []);
+  const list = useMemo(() => {
+    const l = applyFilters(all, filters);
+    return filters.sort === 'price' ? [...l].sort((a, b) => b.wish_price - a.wish_price) : l;
+  }, [all, filters]);
+  const tomos = list.reduce((t, e) => t + e.wish_count, 0);
+  const total = list.reduce((t, e) => t + e.wish_price, 0);
+
+  const header = (
+    <View>
+      {all.length ? (
+        <Text style={{ color: C.text, fontSize: 16, fontWeight: '800', paddingHorizontal: 12, paddingTop: 12 }}>
+          {list.length} colecciones · {tomos} tomos · {eur(total)}
+        </Text>
+      ) : null}
+      <FilterBar filters={filters} onChange={setFilters} source={all} showState={false} />
+    </View>
+  );
+
   return (
     <FlashList
-      data={rows}
-      keyExtractor={(r) => r.k}
-      getItemType={(r) => (r.h ? 'h' : 'v')}
-      ListEmptyComponent={<Empty text="Tu lista de deseos está vacía. Pulsa «Deseo» en la ficha de una colección para añadir sus tomos en tienda y en preparación." />}
-      ListHeaderComponent={data.length ? (
-        <Text style={{ color: C.text, fontSize: 18, fontWeight: '800', padding: 12 }}>
-          Presupuesto total: {eur(data.reduce((t, v) => t + (v.price ?? 0), 0))}
-        </Text>) : null}
+      data={list}
+      keyExtractor={(e) => String(e.id)}
+      renderItem={({ item }) => <EditionRow e={item} wish />}
+      ListHeaderComponent={header}
+      ListEmptyComponent={<Empty text="Tu lista de deseos está vacía. Pulsa «Deseo» en la ficha de una colección para añadirla." />}
       contentContainerStyle={{ paddingBottom: 24 }}
-      renderItem={({ item }) => {
-        if (item.h) return <Text style={{ color: C.accent, fontWeight: '800', padding: 12, paddingBottom: 4 }}>{item.h}</Text>;
-        const v = item.v!;
-        return (
-          <Pressable onPress={() => router.push(`/edition/${v.edition_id}`)}
-            style={{ flexDirection: 'row', backgroundColor: C.card, marginHorizontal: 12, marginVertical: 4, padding: 10, borderRadius: 12, alignItems: 'center' }}>
-            <Cover uri={v.cover_url} style={{ width: 46, height: 66 }} />
-            <View style={{ flex: 1, marginHorizontal: 12 }}>
-              <Text style={{ color: C.text, fontWeight: '700' }} numberOfLines={2}>{v.title}</Text>
-              <Text style={{ color: C.dim, fontSize: 11 }} numberOfLines={1}>{v.edition_name}</Text>
-              <Text style={{ color: C.dim, fontSize: 12, marginTop: 3 }}>{fmtDate(v.release_date)} · {v.price != null ? eur(v.price) : 'n/d'}</Text>
-            </View>
-            <View style={{ gap: 6 }}>
-              {v.phase === 0 && (!v.release_date || v.release_date <= today) ? <Chip label="Tengo" icon="library" onPress={() => { tap(); repo.setVolumeFlag(v.id, 'owned', true); }} /> : null}
-            </View>
-          </Pressable>
-        );
-      }}
     />
   );
 }

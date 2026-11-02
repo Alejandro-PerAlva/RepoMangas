@@ -38,6 +38,7 @@ export interface EditionSummary {
   owned_count: number;
   read_count: number;
   wish_count: number;
+  wish_price: number;
   price_owned: number;
   last_added: number;
   next_unread: number | null;

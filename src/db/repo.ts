@@ -18,6 +18,7 @@ SELECT e.id, e.name, w.title AS work_title, e.publisher_id, e.publisher, e.forma
   (SELECT COUNT(*) FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id WHERE v.is_pack = 0 AND v.edition_id = e.id AND s.owned = 1) AS owned_count,
   (SELECT COUNT(*) FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id WHERE v.is_pack = 0 AND v.edition_id = e.id AND s.read = 1) AS read_count,
   (SELECT CASE WHEN e.followed = 1 THEN COUNT(*) ELSE 0 END FROM volumes v LEFT JOIN user_volume_state s ON s.volume_id = v.id WHERE v.is_pack = 0 AND v.phase IN (0,1) AND v.edition_id = e.id AND COALESCE(s.owned,0) = 0) AS wish_count,
+  (SELECT CASE WHEN e.followed = 1 THEN COALESCE(SUM(v.price),0) ELSE 0 END FROM volumes v LEFT JOIN user_volume_state s ON s.volume_id = v.id WHERE v.is_pack = 0 AND v.phase IN (0,1) AND v.edition_id = e.id AND COALESCE(s.owned,0) = 0) AS wish_price,
   (SELECT COALESCE(SUM(v.price),0) FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id WHERE v.is_pack = 0 AND v.edition_id = e.id AND s.owned = 1) AS price_owned,
   (SELECT COALESCE(MAX(s.updated_at),0) FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id WHERE v.is_pack = 0 AND v.edition_id = e.id AND s.owned = 1) AS last_added,
   (SELECT MIN(v.number) FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id WHERE v.is_pack = 0 AND v.edition_id = e.id AND s.owned = 1 AND s.read = 0) AS next_unread
