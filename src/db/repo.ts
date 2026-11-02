@@ -161,6 +161,20 @@ async function ensureState(volumeId: number) {
     'INSERT OR IGNORE INTO user_volume_state (volume_id, updated_at) VALUES (?, ?)', volumeId, now());
 }
 
+/** Tras añadir tomos: colección completa y cerrada -> sale de deseos; en cualquier otro caso entra en deseos. */
+async function autoWish(editionId: number) {
+  const db = await getDb();
+  const r = await db.getFirstAsync<{ status: string; total: number; missing: number }>(
+    `SELECT e.status,
+       (SELECT COUNT(*) FROM volumes v WHERE v.is_pack = 0 AND v.edition_id = e.id) AS total,
+       (SELECT COUNT(*) FROM volumes v LEFT JOIN user_volume_state s ON s.volume_id = v.id
+         WHERE v.is_pack = 0 AND v.edition_id = e.id AND COALESCE(s.owned,0) = 0) AS missing
+     FROM editions e WHERE e.id = ?`, editionId);
+  if (!r) return;
+  const done = r.status === 'Cerrada' && r.total > 0 && r.missing === 0;
+  await db.runAsync('UPDATE editions SET followed = ? WHERE id = ?', done ? 0 : 1, editionId);
+}
+
 export async function setVolumeFlag(volumeId: number, flag: 'owned' | 'read', value: boolean) {
   const db = await getDb();
   if (value) {
@@ -172,6 +186,10 @@ export async function setVolumeFlag(volumeId: number, flag: 'owned' | 'read', va
   await db.runAsync(
     `UPDATE user_volume_state SET ${flag} = ?, updated_at = ?${extra} WHERE volume_id = ?`,
     value ? 1 : 0, now(), volumeId);
+  if (value) {
+    const ed = await db.getFirstAsync<{ edition_id: number }>('SELECT edition_id FROM volumes WHERE id = ?', volumeId);
+    if (ed) await autoWish(ed.edition_id);
+  }
   bump();
 }
 
@@ -184,6 +202,7 @@ export async function ownedAndReadUpTo(editionId: number, n: number) {
       await db.runAsync('UPDATE user_volume_state SET owned=1, read=1, updated_at=? WHERE volume_id=?', now(), v.id);
     }
   });
+  if (vols.length) await autoWish(editionId);
   bump();
 }
 
@@ -202,6 +221,7 @@ export async function bulkAction(editionId: number, action: BulkAction) {
     else
       await db.runAsync(`UPDATE user_volume_state SET owned=0, wishlisted=0, read=0, tag=NULL, updated_at=? WHERE volume_id IN ${ids}`, t);
   });
+  if (action === 'ownAll' && vols.length) await autoWish(editionId);
   bump();
 }
 

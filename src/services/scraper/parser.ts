@@ -153,7 +153,9 @@ export function parseEdition(html: string, id: number): ParsedEdition | null {
   // España: abierta mientras queden números en preparación / sin editar (o menos tomos que el original)
   let status: PubStatus = siteEs;
   if (edited > 0 || pending > 0) {
-    if (pending > 0 || (total_jp != null && edited < total_jp)) status = 'Abierta';
+    if (pending > 0) status = 'Abierta';
+    else if (siteEs === 'Cerrada') status = 'Cerrada'; // cerrada en España aunque tenga menos tomos que Japón
+    else if (total_jp != null && edited < total_jp) status = 'Abierta';
     else if (siteEs === 'Desconocido' || siteEs === 'Abierta') status = status_jp === 'Abierta' ? 'Abierta' : 'Cerrada';
   }
 

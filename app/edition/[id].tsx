@@ -9,7 +9,7 @@ import { VolumeTile } from '../../src/components/VolumeTile';
 import { VolumeSheet } from '../../src/components/VolumeSheet';
 import { Btn, Chip, Cover, ProgressBar, SectionTitle, StatusPill } from '../../src/components/ui';
 import { C } from '../../src/theme';
-import { isOut, progress } from '../../src/lib/filters';
+import { isComplete, isOut, progress } from '../../src/lib/filters';
 import { thump, tap } from '../../src/lib/actions';
 import type { Volume } from '../../src/types';
 
@@ -105,8 +105,10 @@ export default function EditionScreen() {
         {meta?.reading_dir ? <Chip icon="arrow-forward" label={`Lectura ${meta.reading_dir.toLowerCase()}`} /> : null}
       </View>
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-        <Btn label={ed.followed ? 'En deseos ✓' : 'Deseo'} icon="star" kind={ed.followed ? 'amber' : 'default'}
-          onPress={() => { tap(); repo.setFollowed(id, !ed.followed); }} style={{ flex: 1 }} />
+        {ed.status === 'Cerrada' && isComplete(ed) && !preparing.length && !unreleased.length ? null : (
+          <Btn label={ed.followed ? 'En deseos ✓' : 'Deseo'} icon="star" kind={ed.followed ? 'amber' : 'default'}
+            onPress={() => { tap(); repo.setFollowed(id, !ed.followed); }} style={{ flex: 1 }} />
+        )}
         <Btn label="Acciones" icon="flash" onPress={() => setMenu((m) => !m)} style={{ flex: 1 }} />
       </View>
       {menu && (
