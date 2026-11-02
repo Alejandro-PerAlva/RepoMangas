@@ -1,5 +1,6 @@
 import React from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Cover, Btn } from './ui';
 import { C } from '../theme';
 import { eur, fmtDate } from '../lib/filters';
@@ -8,6 +9,7 @@ import { tap } from '../lib/actions';
 import type { Volume } from '../types';
 
 export function VolumeSheet({ volume, onClose }: { volume: Volume | null; onClose: () => void }) {
+  const insets = useSafeAreaInsets();
   if (!volume) return null;
   const toggle = (f: 'owned' | 'wishlisted' | 'read') => {
     tap();
@@ -15,14 +17,14 @@ export function VolumeSheet({ volume, onClose }: { volume: Volume | null; onClos
     onClose();
   };
   return (
-    <Modal transparent visible animationType="slide" onRequestClose={onClose}>
+    <Modal transparent visible animationType="slide" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
       <Pressable style={s.backdrop} onPress={onClose} />
-      <View style={s.sheet}>
+      <View style={[s.sheet, { paddingBottom: 16 + insets.bottom }]}>
         <View style={s.grip} />
         <View style={{ flexDirection: 'row' }}>
           <Cover uri={volume.cover_url} style={{ width: 90, height: 132 }} />
           <View style={{ flex: 1, marginLeft: 14 }}>
-            <Text style={s.title}>{volume.title}</Text>
+            <Text style={s.title} numberOfLines={4}>{volume.title}</Text>
             <Text style={s.meta}>{fmtDate(volume.release_date)}</Text>
             <Text style={s.meta}>{volume.price != null ? eur(volume.price) : 'Precio n/d'}</Text>
             <Text style={s.meta}>{volume.pages ? `${volume.pages} páginas` : 'Páginas n/d'}</Text>

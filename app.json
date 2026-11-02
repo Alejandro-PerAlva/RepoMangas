@@ -8,7 +8,9 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0E0E12",
-    "platforms": ["android"],
+    "platforms": [
+      "android"
+    ],
     "android": {
       "package": "com.repomangas.app",
       "adaptiveIcon": {
@@ -17,8 +19,16 @@
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "versionCode": 2,
+      "softwareKeyboardLayoutMode": "resize"
     },
-    "plugins": ["expo-router", "expo-sqlite", "expo-image", "expo-sharing"]
+    "plugins": [
+      "expo-router",
+      "expo-sqlite",
+      "expo-image",
+      "expo-sharing"
+    ],
+    "description": "Gestiona tu colección de manga con datos de Listado Manga"
   }
 }

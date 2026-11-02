@@ -111,6 +111,9 @@ export default function Perfil() {
         <Btn label="Importar copia (JSON)" icon="push" onPress={importDb} />
         <Btn label="Limpiar caché de imágenes" icon="trash" onPress={clearImages} />
       </View>
+      <Text style={{ color: C.dim, fontSize: 11, textAlign: 'center', marginTop: 24 }}>
+        RepoMangas 1.0 · Datos de listadomanga.es · Todo se guarda en tu dispositivo
+      </Text>
     </ScrollView>
   );
 }

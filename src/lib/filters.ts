@@ -25,7 +25,7 @@ export const SORT_LABELS: Record<SortKey, string> = {
 
 const total = (e: EditionSummary) => Math.max(e.vol_count, e.total_es ?? 0);
 export const isComplete = (e: EditionSummary) =>
-  e.vol_count > 0 && e.owned_count >= e.vol_count && (e.status === 'Finalizada' || e.owned_count >= total(e));
+  e.vol_count > 0 && e.owned_count >= e.vol_count && (e.status === 'Cerrada' || e.owned_count >= total(e));
 const hasGaps = (e: EditionSummary) => e.owned_count > 0 && e.owned_count < e.vol_count;
 const upToDate = (e: EditionSummary) => e.owned_count > 0 && e.owned_count >= e.vol_count && !isComplete(e);
 export const progress = (e: EditionSummary) => (total(e) ? e.owned_count / total(e) : 0);

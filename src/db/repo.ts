@@ -4,11 +4,14 @@ import type {
 } from '../types';
 
 const now = () => Date.now();
-export const todayISO = () => new Date().toISOString().slice(0, 10);
+export const todayISO = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 const SUMMARY_SQL = `
 SELECT e.id, e.name, w.title AS work_title, e.publisher_id, e.publisher, e.format, e.size,
-  w.genre, e.status, e.followed, e.total_es,
+  w.genre, e.status, e.status_jp, e.origin_lang, e.total_jp, e.followed, e.total_es,
   (SELECT group_concat(a.name, ', ') FROM (SELECT DISTINCT a.name FROM work_authors wa JOIN authors a ON a.id = wa.author_id WHERE wa.work_id = w.id) a) AS authors,
   (SELECT cover_url FROM volumes v WHERE v.is_pack = 0 AND v.edition_id = e.id ORDER BY v.number LIMIT 1) AS cover_url,
   (SELECT COUNT(*) FROM volumes v WHERE v.is_pack = 0 AND v.edition_id = e.id) AS vol_count,
@@ -82,12 +85,13 @@ export async function saveEdition(p: ParsedEdition): Promise<number[]> {
       await db.runAsync('INSERT OR IGNORE INTO work_authors (work_id, author_id, role) VALUES (?,?,?)', workId, a.id, a.role);
     }
     await db.runAsync(
-      `INSERT INTO editions (id, work_id, name, publisher_id, publisher, format, size, reading_dir, status, total_jp, total_es, scraped_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+      `INSERT INTO editions (id, work_id, name, publisher_id, publisher, format, size, reading_dir, status, total_jp, total_es, status_jp, origin_lang, scraped_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(id) DO UPDATE SET work_id=excluded.work_id, name=excluded.name, publisher_id=excluded.publisher_id,
          publisher=excluded.publisher, format=excluded.format, size=excluded.size, reading_dir=excluded.reading_dir,
-         status=excluded.status, total_jp=excluded.total_jp, total_es=excluded.total_es, scraped_at=excluded.scraped_at`,
-      p.id, workId, p.name, p.publisher_id, p.publisher, p.format, p.size, p.reading_dir, p.status, p.total_jp, p.total_es, now());
+         status=excluded.status, total_jp=excluded.total_jp, total_es=excluded.total_es, status_jp=excluded.status_jp,
+         origin_lang=excluded.origin_lang, scraped_at=excluded.scraped_at`,
+      p.id, workId, p.name, p.publisher_id, p.publisher, p.format, p.size, p.reading_dir, p.status, p.total_jp, p.total_es, p.status_jp, p.origin_lang, now());
     for (const v of p.volumes) {
       const ex = await db.getFirstAsync<{ id: number }>('SELECT id FROM volumes WHERE edition_id = ? AND number = ?', p.id, v.number);
       if (ex) {
@@ -360,7 +364,7 @@ export async function cachedEditionIds(): Promise<Set<number>> {
 }
 export async function activeEditionIds(): Promise<number[]> {
   const db = await getDb();
-  return (await db.getAllAsync<{ id: number }>("SELECT id FROM editions WHERE status IN ('En curso','Desconocido')")).map((r) => r.id);
+  return (await db.getAllAsync<{ id: number }>("SELECT id FROM editions WHERE status IN ('Abierta','Desconocido')")).map((r) => r.id);
 }
 export async function savePublisher(id: number, name: string) {
   const db = await getDb();

@@ -1,4 +1,4 @@
-export type PubStatus = 'En curso' | 'Finalizada' | 'Pausada' | 'Cancelada' | 'Desconocido';
+export type PubStatus = 'Abierta' | 'Cerrada' | 'Pausada' | 'Cancelada' | 'Desconocido';
 
 export interface Volume {
   id: number;
@@ -30,6 +30,9 @@ export interface EditionSummary {
   cover_url: string | null;
   followed: number;
   total_es: number | null;
+  total_jp: number | null;
+  status_jp: PubStatus | null;
+  origin_lang: string | null;
   vol_count: number;
   owned_count: number;
   read_count: number;
@@ -77,6 +80,8 @@ export interface ParsedEdition {
   total_jp: number | null;
   total_es: number | null;
   status: PubStatus;
+  status_jp: PubStatus | null;
+  origin_lang: string | null;
   synopsis: string | null;
   volumes: ParsedVolume[];
 }

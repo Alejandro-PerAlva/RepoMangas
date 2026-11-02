@@ -76,6 +76,22 @@ const s = StyleSheet.create({
   fill: { height: '100%', borderRadius: 3 },
 });
 
+export const statusColor = (s: string | null) =>
+  s === 'Abierta' ? C.green : s === 'Cerrada' ? C.accent : s === 'Cancelada' ? C.red : s === 'Pausada' ? C.amber : C.dim;
+
+/** "España · Abierta · 22" style pill */
+export function StatusPill({ region, status, count }: { region: string; status: string | null; count: number | null }) {
+  const col = statusColor(status);
+  return (
+    <View style={{ borderWidth: 1, borderColor: col, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 5, marginRight: 8 }}>
+      <Text style={{ color: C.dim, fontSize: 10, fontWeight: '700' }}>{region.toUpperCase()}</Text>
+      <Text style={{ color: col, fontSize: 13, fontWeight: '800' }}>
+        {status ?? 'n/d'}{count != null ? ` · ${count} ${count === 1 ? 'tomo' : 'tomos'}` : ''}
+      </Text>
+    </View>
+  );
+}
+
 export interface Opt { key: string; label: string }
 
 /** Bottom-sheet single-choice picker with optional (remote) search. Safe for Android nav bars. */

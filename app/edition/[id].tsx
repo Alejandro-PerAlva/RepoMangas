@@ -4,10 +4,10 @@ import { FlashList } from '@shopify/flash-list';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
 import { useQuery } from '../../src/db/useQuery';
 import * as repo from '../../src/db/repo';
-import { ensureEdition, ensureAuthor } from '../../src/services/scraper';
+import { ensureEdition, ensureAuthor, scrapeEdition } from '../../src/services/scraper';
 import { VolumeTile } from '../../src/components/VolumeTile';
 import { VolumeSheet } from '../../src/components/VolumeSheet';
-import { Btn, Chip, Cover, ProgressBar, SectionTitle } from '../../src/components/ui';
+import { Btn, Chip, Cover, ProgressBar, SectionTitle, StatusPill } from '../../src/components/ui';
 import { C } from '../../src/theme';
 import { progress } from '../../src/lib/filters';
 import { thump, tap } from '../../src/lib/actions';
@@ -19,6 +19,7 @@ export default function EditionScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [menu, setMenu] = useState(false);
+  const [fullSyn, setFullSyn] = useState(false);
 
   const { data: ed } = useQuery(() => repo.getEdition(id), [id], null);
   const { data: meta } = useQuery(() => repo.getEditionMeta(id), [id], null);
@@ -33,7 +34,12 @@ export default function EditionScreen() {
 
   const load = useCallback(async (force = false) => {
     setLoading(true); setError(null);
-    try { await ensureEdition(id, force); } catch { setError('No se pudo cargar. Comprueba tu conexión.'); }
+    try {
+      await ensureEdition(id, force);
+      // refresh ongoing series in the background when the stored data is older than 3 days
+      const m = await repo.getEditionMeta(id);
+      if (!force && m && Date.now() - m.scraped_at > 3 * 86400_000) scrapeEdition(id).catch(() => {});
+    } catch { setError('No se pudo cargar. Comprueba tu conexión.'); }
     setLoading(false);
   }, [id]);
   useEffect(() => { load(); }, [load]);
@@ -42,7 +48,7 @@ export default function EditionScreen() {
   const onPress = useCallback((v: Volume) => { tap(); setSel(v); }, []);
   const onLong = useCallback((v: Volume) => { thump(); repo.setVolumeFlag(v.id, 'owned', !v.owned); }, []);
 
-  const bulk = (a: repo.BulkAction, label: string) => { tap(); setMenu(false); repo.bulkAction(id, a); void label; };
+  const bulk = (a: repo.BulkAction) => { tap(); setMenu(false); repo.bulkAction(id, a); };
 
   const header = ed ? (
     <View style={{ padding: 12 }}>
@@ -54,17 +60,24 @@ export default function EditionScreen() {
             {ed.owned_count}/{Math.max(ed.vol_count, ed.total_es ?? 0)} tomos · {ed.read_count} leídos
           </Text>
           <View style={{ marginTop: 8 }}><ProgressBar value={progress(ed)} /></View>
-          <Text style={{ color: C.dim, fontSize: 12, marginTop: 6 }}>
-            {ed.status}{meta?.total_jp ? ` · ${meta.total_jp} en Japón` : ''}{ed.total_es ? ` · ${ed.total_es} en España` : ''}
-          </Text>
+          {meta?.original_title ? <Text style={{ color: C.dim, fontSize: 12, marginTop: 6 }} numberOfLines={2}>{meta.original_title}</Text> : null}
         </View>
       </View>
+      <View style={{ flexDirection: 'row', marginTop: 12 }}>
+        <StatusPill region="España" status={ed.status} count={ed.total_es} />
+        <StatusPill region={ed.origin_lang && ed.origin_lang !== 'japonés' ? ed.origin_lang : 'Japón'} status={ed.status_jp} count={ed.total_jp} />
+      </View>
+      {ed.total_jp && ed.total_es && ed.total_jp > ed.total_es && ed.status === 'Abierta' ? (
+        <Text style={{ color: C.dim, fontSize: 12, marginTop: 6 }}>Quedan {ed.total_jp - ed.total_es} tomos por llegar a España.</Text>
+      ) : ed.total_jp && ed.total_es && ed.total_jp === ed.total_es ? (
+        <Text style={{ color: C.dim, fontSize: 12, marginTop: 6 }}>Edición al día con el original.</Text>
+      ) : null}
       <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 12, rowGap: 6 }}>
         {authors.map((a) => <Chip key={a.id} icon="person" label={a.name} onPress={() => router.push(`/author/${a.id}`)} />)}
         {ed.publisher_id && ed.publisher ? <Chip icon="business" label={ed.publisher} onPress={() => router.push(`/publisher/${ed.publisher_id}`)} /> : null}
         {ed.format ? <Chip icon="book" label={`${ed.format}${ed.size ? ` ${ed.size}` : ''}`} onPress={() => router.push({ pathname: '/explorar', params: { format: ed.format! } })} /> : null}
         {ed.genre ? <Chip icon="pricetag" label={ed.genre} onPress={() => router.push({ pathname: '/explorar', params: { genre: ed.genre! } })} /> : null}
-        {meta?.reading_dir ? <Chip icon="arrow-forward" label={meta.reading_dir} /> : null}
+        {meta?.reading_dir ? <Chip icon="arrow-forward" label={`Lectura ${meta.reading_dir.toLowerCase()}`} /> : null}
       </View>
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
         <Btn label={ed.followed ? 'Siguiendo ✓' : 'Seguir'} icon="notifications" kind={ed.followed ? 'primary' : 'default'}
@@ -73,14 +86,19 @@ export default function EditionScreen() {
       </View>
       {menu && (
         <View style={{ backgroundColor: C.card, borderRadius: 10, padding: 8, marginTop: 8, gap: 6 }}>
-          <Btn label="Marcar todos como tenidos" icon="library" onPress={() => bulk('ownAll', '')} />
-          <Btn label="Marcar leídos todos los que tengo" icon="checkmark-done" onPress={() => bulk('readOwned', '')} />
-          <Btn label="Añadir faltantes a Lista de Deseos" icon="star" kind="amber" onPress={() => bulk('wishMissing', '')} />
+          <Btn label="Marcar todos como tenidos" icon="library" onPress={() => bulk('ownAll')} />
+          <Btn label="Marcar leídos todos los que tengo" icon="checkmark-done" onPress={() => bulk('readOwned')} />
+          <Btn label="Añadir faltantes a Lista de Deseos" icon="star" kind="amber" onPress={() => bulk('wishMissing')} />
           <Btn label="Borrar mi progreso de esta serie" icon="trash" kind="danger"
-            onPress={() => Alert.alert('¿Borrar progreso?', ed.name, [{ text: 'Cancelar', style: 'cancel' }, { text: 'Borrar', style: 'destructive', onPress: () => bulk('clear', '') }])} />
+            onPress={() => Alert.alert('¿Borrar progreso?', ed.name, [{ text: 'Cancelar', style: 'cancel' }, { text: 'Borrar', style: 'destructive', onPress: () => bulk('clear') }])} />
         </View>
       )}
-      {meta?.synopsis ? <Text style={{ color: C.dim, marginTop: 12, lineHeight: 20 }}>{meta.synopsis}</Text> : null}
+      {meta?.synopsis ? (
+        <Pressable onPress={() => setFullSyn((v) => !v)}>
+          <Text style={{ color: C.dim, marginTop: 12, lineHeight: 20 }} numberOfLines={fullSyn ? undefined : 4}>{meta.synopsis}</Text>
+          <Text style={{ color: C.accent, fontSize: 12, marginTop: 2 }}>{fullSyn ? 'Ver menos' : 'Ver más'}</Text>
+        </Pressable>
+      ) : null}
       <Text style={{ color: C.dim, fontSize: 11, marginTop: 10 }}>Toca para detalles · mantén pulsado para alternar "Tengo"</Text>
     </View>
   ) : null;
@@ -127,9 +145,12 @@ export default function EditionScreen() {
         ListHeaderComponent={header}
         ListFooterComponent={footer}
         ListEmptyComponent={
-          <Text style={{ color: error ? C.red : C.dim, textAlign: 'center', padding: 30 }}>
-            {loading ? 'Cargando ficha…' : error ?? 'Sin tomos'}
-          </Text>}
+          <View style={{ alignItems: 'center', padding: 30 }}>
+            <Text style={{ color: error ? C.red : C.dim, textAlign: 'center', marginBottom: 12 }}>
+              {loading ? 'Cargando ficha…' : error ?? 'Esta edición no tiene tomos publicados todavía.'}
+            </Text>
+            {error && !loading ? <Btn label="Reintentar" icon="refresh" onPress={() => load(true)} /> : null}
+          </View>}
         refreshing={loading}
         onRefresh={() => load(true)}
         contentContainerStyle={{ paddingHorizontal: 7 }}

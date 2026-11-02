@@ -33,8 +33,8 @@ function parseStatus(s: string): PubStatus {
   const t = s.toLowerCase();
   if (t.includes('cancel')) return 'Cancelada';
   if (t.includes('paus') || t.includes('suspend') || t.includes('parad')) return 'Pausada';
-  if (t.includes('complet') || t.includes('finaliz')) return 'Finalizada';
-  if (t.includes('abiert') || t.includes('curso') || t.includes('public')) return 'En curso';
+  if (t.includes('complet') || t.includes('finaliz') || t.includes('cerrad')) return 'Cerrada';
+  if (t.includes('abiert') || t.includes('curso') || t.includes('public')) return 'Abierta';
   return 'Desconocido';
 }
 
@@ -89,8 +89,13 @@ export function parseEdition(html: string, id: number): ParsedEdition | null {
   const col = f('Colecci');
   const fmt = f('Formato');
   const sizeM = fmt?.text.match(/\((\d+\s*x\s*\d+)\)/);
-  const jp = f('Números en japon')?.text.match(/\d+/);
-  const esF = f('Números en castellano') ?? f('Números en catal') ?? f('Números en');
+  const numFields = Object.keys(fields).filter((k) => /^números en /i.test(k));
+  const isLocal = (k: string) => /castellano|catal|gallego|euskera|valenci/i.test(k);
+  const esKey = numFields.find(isLocal);
+  const jpKey = numFields.find((k) => !isLocal(k));
+  const esF = esKey ? f(esKey) : null;
+  const jpF = jpKey ? f(jpKey) : null;
+  const jp = jpF?.text.match(/\d+/);
   const es = esF?.text.match(/\d+/);
 
   const volumes: ParsedVolume[] = [];
@@ -154,6 +159,8 @@ export function parseEdition(html: string, id: number): ParsedEdition | null {
     total_jp: jp ? parseInt(jp[0], 10) : null,
     total_es: es ? parseInt(es[0], 10) : null,
     status: esF ? parseStatus(esF.text) : 'Desconocido',
+    status_jp: jpF ? parseStatus(jpF.text) : null,
+    origin_lang: jpKey ? jpKey.replace(/^números en /i, '').toLowerCase() : null,
     synopsis: synText || null,
     volumes: dedupe(volumes),
   };

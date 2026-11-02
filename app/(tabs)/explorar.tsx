@@ -153,7 +153,7 @@ export default function Explorar() {
             </Pressable>
           );
         }}
-        ListEmptyComponent={<Empty text={busy || listBusy ? 'Buscando…' : q.length >= 2 || filters.publisher || filters.author ? 'Sin resultados' : 'Busca por título, autor o editorial, o usa los filtros'} />}
+        ListEmptyComponent={<Empty text={busy || listBusy ? 'Buscando…' : q.length >= 2 || filters.publisher || filters.author ? 'Sin resultados' : 'Busca por título, autor o editorial, o usa los filtros. Para tener todo el catálogo sin conexión, descárgalo desde Perfil.'} />}
         contentContainerStyle={{ paddingBottom: 24 }}
         keyboardShouldPersistTaps="handled"
       />

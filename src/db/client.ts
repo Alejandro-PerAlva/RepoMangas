@@ -33,6 +33,8 @@ CREATE TABLE IF NOT EXISTS editions (
   status TEXT NOT NULL DEFAULT 'Desconocido',
   total_jp INTEGER,
   total_es INTEGER,
+  status_jp TEXT,
+  origin_lang TEXT,
   followed INTEGER NOT NULL DEFAULT 0,
   scraped_at INTEGER NOT NULL DEFAULT 0
 );
@@ -92,6 +94,12 @@ export function getDb(): Promise<SQLite.SQLiteDatabase> {
       const db = await SQLite.openDatabaseAsync('repomangas.db');
       await db.execAsync(SCHEMA);
       const v = (await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version'))?.user_version ?? 0;
+      if (v < 3) {
+        const ec = await db.getAllAsync<{ name: string }>('PRAGMA table_info(editions)');
+        if (!ec.some((c) => c.name === 'status_jp')) await db.execAsync('ALTER TABLE editions ADD COLUMN status_jp TEXT');
+        if (!ec.some((c) => c.name === 'origin_lang')) await db.execAsync('ALTER TABLE editions ADD COLUMN origin_lang TEXT');
+        await db.execAsync("UPDATE editions SET status = CASE status WHEN 'En curso' THEN 'Abierta' WHEN 'Finalizada' THEN 'Cerrada' ELSE status END, scraped_at = 0; PRAGMA user_version = 3;");
+      }
       if (v < 2) {
         const cols = await db.getAllAsync<{ name: string }>('PRAGMA table_info(volumes)');
         if (!cols.some((c) => c.name === 'is_pack')) await db.execAsync('ALTER TABLE volumes ADD COLUMN is_pack INTEGER NOT NULL DEFAULT 0');
