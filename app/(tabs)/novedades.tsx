@@ -77,9 +77,9 @@ export default function Novedades() {
     setRefreshing(false);
   }, [load]);
 
-  const mark = (r: ReleaseItem, f: 'owned' | 'wishlisted') => {
+  const mark = (r: ReleaseItem) => {
     tap();
-    markRelease(r, f).catch((e) => Alert.alert('Error', String(e.message ?? e)));
+    markRelease(r).catch((e) => Alert.alert('Error', String(e.message ?? e)));
   };
 
   return (
@@ -113,7 +113,7 @@ export default function Novedades() {
         keyExtractor={(r) => r.k}
         getItemType={(r) => (r.header ? 'h' : 'r')}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={C.accent} />}
-        ListEmptyComponent={<Empty text={tab === 'mine' ? 'Aún no hay novedades de tus series. Marca tomos como "Tengo" o "Quiero" para seguirlas.' : 'Sin novedades. Desliza para actualizar.'} />}
+        ListEmptyComponent={<Empty text={tab === 'mine' ? 'Aún no hay novedades de tus series. Marca tomos como "Tengo" o añade una colección a Deseos.' : 'Sin novedades. Desliza para actualizar.'} />}
         contentContainerStyle={{ paddingBottom: 24 }}
         renderItem={({ item }) => {
           if (item.header) return <Text style={{ color: C.accent, fontWeight: '800', fontSize: 15, padding: 12, paddingBottom: 4 }}>{item.header}</Text>;
@@ -131,8 +131,7 @@ export default function Novedades() {
                 {tab === 'mine' && <Text style={{ color: C.dim, fontSize: 12 }}>{r.publisher}</Text>}
               </View>
               <View style={{ gap: 6 }}>
-                <Chip label={r.wishlisted ? 'Quiero ✓' : 'Quiero'} color={C.amber} active={!!r.wishlisted} onPress={() => mark(r, 'wishlisted')} />
-                <Chip label={r.owned ? 'Tengo ✓' : 'Tengo'} active={!!r.owned} onPress={() => mark(r, 'owned')} />
+                {past ? <Chip label={r.owned ? 'Tengo ✓' : 'Tengo'} active={!!r.owned} onPress={() => mark(r)} /> : null}
               </View>
             </Pressable>
           );

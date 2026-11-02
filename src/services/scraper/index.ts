@@ -47,7 +47,6 @@ export async function search(q: string): Promise<SearchResult> {
   return { editions: (j.colecciones ?? []).map(m), authors: (j.autores ?? []).map(m) };
 }
 
-const NEW_TAG = 'Nuevo lanzamiento';
 const pfx = (ano: number, mes: number) => `${ano}-${String(mes).padStart(2, '0')}`;
 
 /** Fetch one calendar month (exact release dates) and store it. */
@@ -64,8 +63,7 @@ export async function syncMonth(ano: number, mes: number, force = false): Promis
   const tracked = await repo.editionsToTrack([...new Set(releases.map((r) => r.edition_id))]);
   for (const eid of tracked) {
     try {
-      const fresh = await scrapeEdition(eid);
-      if (fresh.length) await repo.wishlistVolumes(fresh, NEW_TAG);
+      await scrapeEdition(eid);
     } catch { /* offline / transient */ }
   }
 }

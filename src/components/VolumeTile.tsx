@@ -11,12 +11,11 @@ export const VolumeTile = memo(function VolumeTile({ v, onPress, onLongPress }: 
   const dim = !v.owned;
   return (
     <Pressable onPress={() => onPress(v)} onLongPress={() => onLongPress(v)} delayLongPress={350} style={s.wrap}>
-      <View style={[s.frame, v.wishlisted && !v.owned ? { borderColor: C.amber, borderWidth: 2 } : null]}>
+      <View style={[s.frame, null]}>
         <Cover uri={v.cover_url} style={s.img} dim={dim} />
         {v.owned ? <View style={s.owned}><Ionicons name="library" size={11} color="#fff" /></View> : null}
         {v.read ? <View style={s.read}><Ionicons name="checkmark" size={13} color="#111" /></View> : null}
-        {v.wishlisted && !v.owned ? <View style={s.wish}><Ionicons name="star" size={12} color="#111" /></View> : null}
-        {v.tag ? <View style={s.tag}><Text style={s.tagT}>NUEVO</Text></View> : null}
+        {v.phase === 1 ? <View style={s.tag}><Text style={s.tagT}>PRÓXIMO</Text></View> : null}
       </View>
       <Text style={[s.num, dim && { opacity: 0.5 }]} numberOfLines={v.is_pack ? 2 : 1}>{v.is_pack ? v.title : `#${v.number}`}</Text>
     </Pressable>

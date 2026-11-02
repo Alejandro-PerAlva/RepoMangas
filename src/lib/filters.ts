@@ -74,6 +74,10 @@ export function distinct(list: EditionSummary[]) {
   };
 }
 
+/** a volume can be marked owned/read only once it is on sale */
+export const isOut = (v: { phase: number; release_date: string | null }, today: string) =>
+  v.phase === 0 && (!v.release_date || v.release_date <= today);
+
 export const eur = (n: number) => n.toLocaleString('es-ES', { style: 'currency', currency: 'EUR' });
 export const fmtDate = (iso: string | null) =>
   iso ? new Date(iso + 'T00:00:00').toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Sin fecha';

@@ -17,7 +17,7 @@ SELECT e.id, e.name, w.title AS work_title, e.publisher_id, e.publisher, e.forma
   (SELECT COUNT(*) FROM volumes v WHERE v.is_pack = 0 AND v.phase = 0 AND v.edition_id = e.id) AS vol_count,
   (SELECT COUNT(*) FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id WHERE v.is_pack = 0 AND v.edition_id = e.id AND s.owned = 1) AS owned_count,
   (SELECT COUNT(*) FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id WHERE v.is_pack = 0 AND v.edition_id = e.id AND s.read = 1) AS read_count,
-  (SELECT COUNT(*) FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id WHERE v.is_pack = 0 AND v.edition_id = e.id AND s.wishlisted = 1) AS wish_count,
+  (SELECT CASE WHEN e.followed = 1 THEN COUNT(*) ELSE 0 END FROM volumes v LEFT JOIN user_volume_state s ON s.volume_id = v.id WHERE v.is_pack = 0 AND v.phase IN (0,1) AND v.edition_id = e.id AND COALESCE(s.owned,0) = 0) AS wish_count,
   (SELECT COALESCE(SUM(v.price),0) FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id WHERE v.is_pack = 0 AND v.edition_id = e.id AND s.owned = 1) AS price_owned,
   (SELECT COALESCE(MAX(s.updated_at),0) FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id WHERE v.is_pack = 0 AND v.edition_id = e.id AND s.owned = 1) AS last_added,
   (SELECT MIN(v.number) FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id WHERE v.is_pack = 0 AND v.edition_id = e.id AND s.owned = 1 AND s.read = 0) AS next_unread
@@ -59,13 +59,18 @@ export async function listVolumes(editionId: number): Promise<Volume[]> {
      WHERE v.edition_id = ? ORDER BY v.is_pack, v.number`, editionId);
 }
 
+/** Deseos = tomos en tienda o en preparación de las colecciones marcadas como deseo (los no editados no entran). */
+export const WISH_FROM = `FROM volumes v JOIN editions e ON e.id = v.edition_id LEFT JOIN user_volume_state s ON s.volume_id = v.id
+  WHERE e.followed = 1 AND v.is_pack = 0 AND v.phase IN (0,1) AND COALESCE(s.owned,0) = 0`;
 export async function listWishlist(): Promise<(Volume & { edition_name: string })[]> {
   const db = await getDb();
   return db.getAllAsync(
-    `SELECT v.*, s.owned, s.wishlisted, s.read, s.tag, e.name AS edition_name
-     FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id JOIN editions e ON e.id = v.edition_id
-     WHERE s.wishlisted = 1 AND s.owned = 0 ORDER BY v.release_date, e.name, v.number`);
+    `SELECT v.*, 0 AS owned, 1 AS wishlisted, COALESCE(s.read,0) AS read, s.tag, e.name AS edition_name
+     ${WISH_FROM} ORDER BY v.release_date IS NULL, v.release_date, e.name, v.number`);
 }
+
+/** A volume can only be owned/read once it is on sale. */
+const outSql = () => `v.phase = 0 AND (v.release_date IS NULL OR v.release_date <= '${todayISO()}')`;
 
 export async function saveEdition(p: ParsedEdition): Promise<number[]> {
   const db = await getDb();
@@ -114,7 +119,7 @@ export async function purgeEditionIfUnused(id: number) {
   const keep = await db.getFirstAsync<{ n: number }>(
     `SELECT (SELECT followed FROM editions WHERE id = ?1) +
        (SELECT COUNT(*) FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id
-        WHERE v.edition_id = ?1 AND (s.owned = 1 OR s.wishlisted = 1 OR s.read = 1)) AS n`, id);
+        WHERE v.edition_id = ?1 AND (s.owned = 1 OR s.read = 1)) AS n`, id);
   if (!keep || keep.n > 0) return;
   await db.withTransactionAsync(() => purgeIds(db, [id]));
   bump();
@@ -126,7 +131,7 @@ export async function purgeUnusedEditions() {
   const ids = (await db.getAllAsync<{ id: number }>(
     `SELECT e.id FROM editions e WHERE e.followed = 0 AND NOT EXISTS (
        SELECT 1 FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id
-       WHERE v.edition_id = e.id AND (s.owned = 1 OR s.wishlisted = 1 OR s.read = 1))`)).map((r) => r.id);
+       WHERE v.edition_id = e.id AND (s.owned = 1 OR s.read = 1))`)).map((r) => r.id);
   if (!ids.length) return;
   await db.withTransactionAsync(() => purgeIds(db, ids));
   bump();
@@ -155,10 +160,14 @@ async function ensureState(volumeId: number) {
     'INSERT OR IGNORE INTO user_volume_state (volume_id, updated_at) VALUES (?, ?)', volumeId, now());
 }
 
-export async function setVolumeFlag(volumeId: number, flag: 'owned' | 'wishlisted' | 'read', value: boolean) {
+export async function setVolumeFlag(volumeId: number, flag: 'owned' | 'read', value: boolean) {
   const db = await getDb();
+  if (value) {
+    const ok = await db.getFirstAsync<{ id: number }>(`SELECT v.id FROM volumes v WHERE v.id = ? AND ${outSql()}`, volumeId);
+    if (!ok) return; // aún no ha salido a tienda
+  }
   await ensureState(volumeId);
-  const extra = flag === 'owned' && value ? ', wishlisted = 0' : flag === 'wishlisted' && !value ? ', tag = NULL' : '';
+  const extra = flag === 'owned' && !value ? ', read = 0' : flag === 'read' && value ? ', owned = 1' : '';
   await db.runAsync(
     `UPDATE user_volume_state SET ${flag} = ?, updated_at = ?${extra} WHERE volume_id = ?`,
     value ? 1 : 0, now(), volumeId);
@@ -167,31 +176,28 @@ export async function setVolumeFlag(volumeId: number, flag: 'owned' | 'wishliste
 
 export async function ownedAndReadUpTo(editionId: number, n: number) {
   const db = await getDb();
-  const vols = await db.getAllAsync<{ id: number }>('SELECT id FROM volumes WHERE is_pack = 0 AND edition_id = ? AND number <= ?', editionId, n);
+  const vols = await db.getAllAsync<{ id: number }>(`SELECT v.id FROM volumes v WHERE ${outSql()} AND v.is_pack = 0 AND v.edition_id = ? AND v.number <= ?`, editionId, n);
   await db.withTransactionAsync(async () => {
     for (const v of vols) {
       await ensureState(v.id);
-      await db.runAsync('UPDATE user_volume_state SET owned=1, read=1, wishlisted=0, updated_at=? WHERE volume_id=?', now(), v.id);
+      await db.runAsync('UPDATE user_volume_state SET owned=1, read=1, updated_at=? WHERE volume_id=?', now(), v.id);
     }
   });
   bump();
 }
 
-export type BulkAction = 'ownAll' | 'readOwned' | 'wishMissing' | 'clear';
+export type BulkAction = 'ownAll' | 'readOwned' | 'clear';
 export async function bulkAction(editionId: number, action: BulkAction) {
   const db = await getDb();
-  const vols = await db.getAllAsync<{ id: number }>('SELECT id FROM volumes WHERE is_pack = 0 AND edition_id = ?', editionId);
+  const ids = `(SELECT v.id FROM volumes v WHERE v.edition_id = ${Number(editionId)} AND ${action === 'ownAll' ? outSql() + ' AND v.is_pack = 0' : '1'})`;
+  const vols = await db.getAllAsync<{ id: number }>(`SELECT id FROM ${ids}`);
   await db.withTransactionAsync(async () => {
     for (const v of vols) await ensureState(v.id);
-    const regularOnly = action === 'ownAll' || action === 'wishMissing' ? 'is_pack = 0 AND ' : '';
-    const ids = `(SELECT id FROM volumes WHERE ${regularOnly}edition_id = ${Number(editionId)})`;
     const t = now();
     if (action === 'ownAll')
-      await db.runAsync(`UPDATE user_volume_state SET owned=1, wishlisted=0, updated_at=? WHERE volume_id IN ${ids}`, t);
+      await db.runAsync(`UPDATE user_volume_state SET owned=1, updated_at=? WHERE volume_id IN ${ids}`, t);
     else if (action === 'readOwned')
       await db.runAsync(`UPDATE user_volume_state SET read=1, updated_at=? WHERE owned=1 AND volume_id IN ${ids}`, t);
-    else if (action === 'wishMissing')
-      await db.runAsync(`UPDATE user_volume_state SET wishlisted=1, updated_at=? WHERE owned=0 AND volume_id IN ${ids}`, t);
     else
       await db.runAsync(`UPDATE user_volume_state SET owned=0, wishlisted=0, read=0, tag=NULL, updated_at=? WHERE volume_id IN ${ids}`, t);
   });
@@ -201,18 +207,6 @@ export async function bulkAction(editionId: number, action: BulkAction) {
 export async function setFollowed(editionId: number, followed: boolean) {
   const db = await getDb();
   await db.runAsync('UPDATE editions SET followed = ? WHERE id = ?', followed ? 1 : 0, editionId);
-  bump();
-}
-
-export async function wishlistVolumes(ids: number[], tag: string | null) {
-  const db = await getDb();
-  await db.withTransactionAsync(async () => {
-    for (const id of ids) {
-      await ensureState(id);
-      await db.runAsync(
-        'UPDATE user_volume_state SET wishlisted = 1, tag = ?, updated_at = ? WHERE volume_id = ? AND owned = 0', tag, now(), id);
-    }
-  });
   bump();
 }
 
@@ -237,11 +231,9 @@ export async function listReleases(): Promise<ReleaseItem[]> {
     `SELECT r.*,
        COALESCE((SELECT s.owned FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id
                  WHERE v.edition_id = r.edition_id AND v.number = r.number), 0) AS owned,
-       COALESCE((SELECT s.wishlisted FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id
-                 WHERE v.edition_id = r.edition_id AND v.number = r.number), 0) AS wishlisted,
        CASE WHEN EXISTS (SELECT 1 FROM editions e WHERE e.id = r.edition_id AND (e.followed = 1 OR EXISTS
               (SELECT 1 FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id
-               WHERE v.edition_id = e.id AND (s.owned = 1 OR s.wishlisted = 1)))) THEN 1 ELSE 0 END AS mine
+               WHERE v.edition_id = e.id AND s.owned = 1))) THEN 1 ELSE 0 END AS mine
      FROM releases r ORDER BY r.date, r.publisher, r.title`);
 }
 
@@ -250,7 +242,7 @@ export async function editionsToTrack(editionIds: number[]): Promise<number[]> {
   const db = await getDb();
   const rows = await db.getAllAsync<{ id: number }>(
     `SELECT e.id FROM editions e WHERE e.id IN (${editionIds.map(Number).join(',')}) AND (e.followed = 1 OR EXISTS
-      (SELECT 1 FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id WHERE v.edition_id = e.id AND s.wishlisted = 1))`);
+      (SELECT 1 FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id WHERE v.edition_id = e.id AND s.owned = 1))`);
   return rows.map((r) => r.id);
 }
 
@@ -317,7 +309,7 @@ export async function getStats() {
      AND NOT EXISTS (SELECT 1 FROM volumes v LEFT JOIN user_volume_state s ON s.volume_id = v.id
        WHERE v.is_pack = 0 AND v.edition_id = e.id AND COALESCE(s.owned,0) = 0)
      AND (e.total_es IS NULL OR (SELECT COUNT(*) FROM volumes v WHERE v.is_pack = 0 AND v.edition_id = e.id) >= e.total_es)`);
-  const wq = `FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id WHERE s.wishlisted = 1 AND s.owned = 0`;
+  const wq = WISH_FROM;
   const wishNow = await one(`SELECT COALESCE(SUM(v.price),0) n ${wq} AND v.release_date <= ?`, today);
   const wishMonth = await one(`SELECT COALESCE(SUM(v.price),0) n ${wq} AND v.release_date > ? AND v.release_date <= ?`, today, monthEnd);
   const wishLater = await one(`SELECT COALESCE(SUM(v.price),0) n ${wq} AND (v.release_date IS NULL OR v.release_date > ?)`, monthEnd);

@@ -52,7 +52,6 @@ export interface ReleaseItem {
   publisher: string;
   cover_url: string | null;
   owned: number;
-  wishlisted: number;
   mine: number;
 }
 

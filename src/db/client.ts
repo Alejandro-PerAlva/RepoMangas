@@ -112,6 +112,11 @@ export function getDb(): Promise<SQLite.SQLiteDatabase> {
         // re-scrape on next open so every volume gets its section (editado / preparación / no editado)
         await db.execAsync('UPDATE editions SET scraped_at = 0; PRAGMA user_version = 4;');
       }
+      if (v < 5) {
+        // Deseos pasan a ser por colección: lo que tenía tomos deseados pasa a estar en deseos
+        await db.execAsync(`UPDATE editions SET followed = 1 WHERE id IN (SELECT v.edition_id FROM volumes v JOIN user_volume_state s ON s.volume_id = v.id WHERE s.wishlisted = 1);
+          UPDATE user_volume_state SET wishlisted = 0, tag = NULL; PRAGMA user_version = 5;`);
+      }
       await db.execAsync('CREATE INDEX IF NOT EXISTS idx_vol_ed_pack ON volumes(edition_id, is_pack, phase);');
       return db;
     })();

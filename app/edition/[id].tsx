@@ -9,7 +9,7 @@ import { VolumeTile } from '../../src/components/VolumeTile';
 import { VolumeSheet } from '../../src/components/VolumeSheet';
 import { Btn, Chip, Cover, ProgressBar, SectionTitle, StatusPill } from '../../src/components/ui';
 import { C } from '../../src/theme';
-import { progress } from '../../src/lib/filters';
+import { isOut, progress } from '../../src/lib/filters';
 import { thump, tap } from '../../src/lib/actions';
 import type { Volume } from '../../src/types';
 
@@ -56,7 +56,7 @@ export default function EditionScreen() {
   useEffect(() => { if (firstAuthor) ensureAuthor(firstAuthor).catch(() => {}); }, [firstAuthor]);
 
   const onPress = useCallback((v: Volume) => { tap(); setSel(v); }, []);
-  const onLong = useCallback((v: Volume) => { if (v.phase !== 0 && !v.is_pack) return; thump(); repo.setVolumeFlag(v.id, 'owned', !v.owned); }, []);
+  const onLong = useCallback((v: Volume) => { if (!isOut(v, repo.todayISO())) return; thump(); repo.setVolumeFlag(v.id, 'owned', !v.owned); }, []);
 
   type Row = { k: string; t: 'title' | 'grid' | 'empty'; text?: string; items?: Volume[] };
   const rows = useMemo<Row[]>(() => {
@@ -106,15 +106,14 @@ export default function EditionScreen() {
         {meta?.reading_dir ? <Chip icon="arrow-forward" label={`Lectura ${meta.reading_dir.toLowerCase()}`} /> : null}
       </View>
       <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-        <Btn label={ed.followed ? 'Siguiendo ✓' : 'Seguir'} icon="notifications" kind={ed.followed ? 'primary' : 'default'}
+        <Btn label={ed.followed ? 'En deseos ✓' : 'Deseo'} icon="star" kind={ed.followed ? 'amber' : 'default'}
           onPress={() => { tap(); repo.setFollowed(id, !ed.followed); }} style={{ flex: 1 }} />
         <Btn label="Acciones" icon="flash" onPress={() => setMenu((m) => !m)} style={{ flex: 1 }} />
       </View>
       {menu && (
         <View style={{ backgroundColor: C.card, borderRadius: 10, padding: 8, marginTop: 8, gap: 6 }}>
-          <Btn label="Marcar todos como tenidos" icon="library" onPress={() => bulk('ownAll')} />
+          <Btn label="Marcar como tenidos los ya publicados" icon="library" onPress={() => bulk('ownAll')} />
           <Btn label="Marcar leídos todos los que tengo" icon="checkmark-done" onPress={() => bulk('readOwned')} />
-          <Btn label="Añadir faltantes a Lista de Deseos" icon="star" kind="amber" onPress={() => bulk('wishMissing')} />
           <Btn label="Borrar mi progreso de esta serie" icon="trash" kind="danger"
             onPress={() => Alert.alert('¿Borrar progreso?', ed.name, [{ text: 'Cancelar', style: 'cancel' }, { text: 'Borrar', style: 'destructive', onPress: () => bulk('clear') }])} />
         </View>
@@ -125,7 +124,7 @@ export default function EditionScreen() {
           <Text style={{ color: C.accent, fontSize: 12, marginTop: 2 }}>{fullSyn ? 'Ver menos' : 'Ver más'}</Text>
         </Pressable>
       ) : null}
-      <Text style={{ color: C.dim, fontSize: 11, marginTop: 10 }}>Toca para detalles · mantén pulsado para alternar "Tengo"</Text>
+      <Text style={{ color: C.dim, fontSize: 11, marginTop: 10 }}>Toca para detalles · mantén pulsado para alternar "Tengo" (solo tomos ya publicados)"</Text>
     </View>
   ) : null;
 

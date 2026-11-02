@@ -3,7 +3,7 @@ import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Cover, Btn } from './ui';
 import { C } from '../theme';
-import { eur, fmtDate } from '../lib/filters';
+import { eur, fmtDate, isOut } from '../lib/filters';
 import * as repo from '../db/repo';
 import { tap } from '../lib/actions';
 import type { Volume } from '../types';
@@ -11,7 +11,8 @@ import type { Volume } from '../types';
 export function VolumeSheet({ volume, onClose }: { volume: Volume | null; onClose: () => void }) {
   const insets = useSafeAreaInsets();
   if (!volume) return null;
-  const toggle = (f: 'owned' | 'wishlisted' | 'read') => {
+  const out = isOut(volume, repo.todayISO());
+  const toggle = (f: 'owned' | 'read') => {
     tap();
     repo.setVolumeFlag(volume.id, f, !volume[f]);
     onClose();
@@ -28,15 +29,14 @@ export function VolumeSheet({ volume, onClose }: { volume: Volume | null; onClos
             <Text style={s.meta}>{fmtDate(volume.release_date)}</Text>
             <Text style={s.meta}>{volume.price != null ? eur(volume.price) : 'Precio n/d'}</Text>
             <Text style={s.meta}>{volume.pages ? `${volume.pages} páginas` : 'Páginas n/d'}</Text>
-            {volume.tag ? <Text style={[s.meta, { color: C.amber }]}>{volume.tag}</Text> : null}
+            {!out ? <Text style={[s.meta, { color: C.amber }]}>{volume.phase === 2 ? 'Aún no editado' : 'Aún no ha salido a tienda'}</Text> : null}
           </View>
         </View>
-        <View style={s.row}>
+        {out ? <View style={s.row}>
           <Btn label={volume.owned ? 'Lo tengo ✓' : 'Tengo'} kind={volume.owned ? 'primary' : 'default'} icon="library" onPress={() => toggle('owned')} style={s.flex} />
-          <Btn label={volume.wishlisted ? 'Quiero ✓' : 'Quiero'} kind={volume.wishlisted ? 'amber' : 'default'} icon="star" onPress={() => toggle('wishlisted')} style={s.flex} />
           <Btn label={volume.read ? 'Leído ✓' : 'Leído'} kind={volume.read ? 'green' : 'default'} icon="checkmark-circle" onPress={() => toggle('read')} style={s.flex} />
-        </View>
-        {!volume.is_pack && <Btn
+        </View> : <Text style={{ color: C.dim, marginTop: 16 }}>Podrás marcarlo como «Tengo» o «Leído» cuando salga a la venta.</Text>}
+        {out && !volume.is_pack && <Btn
           label={`Tengo y leído hasta el #${volume.number}`} icon="flash"
           onPress={() => { tap(); repo.ownedAndReadUpTo(volume.edition_id, volume.number); onClose(); }}
           style={{ marginTop: 8 }}

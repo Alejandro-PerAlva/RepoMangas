@@ -21,7 +21,7 @@ export const EditionRow = memo(function EditionRow({ e }: { e: EditionSummary })
         <View style={{ marginTop: 6 }}>
           <ProgressBar value={progress(e)} />
           <Text style={s.sub}>
-            {e.owned_count}/{total || '?'} tomos · {e.read_count} leídos{e.wish_count ? ` · ${e.wish_count} ★` : ''}
+            {e.owned_count}/{total || '?'} tomos · {e.read_count} leídos{e.followed ? ' · ★ en deseos' : ''}
           </Text>
         </View>
       </View>
