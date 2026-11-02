@@ -13,6 +13,7 @@ export interface Volume {
   wishlisted: number;
   read: number;
   tag: string | null;
+  is_pack: number;
 }
 
 export interface EditionSummary {
@@ -58,6 +59,7 @@ export interface ParsedVolume {
   price: number | null;
   pages: number | null;
   cover_url: string | null;
+  is_pack: number;
 }
 
 export interface ParsedEdition {
@@ -85,6 +87,7 @@ export interface ParsedRelease {
   number: number | null;
   date: string;
   publisher: string;
+  publisher_id: number | null;
   cover_url: string | null;
 }
 

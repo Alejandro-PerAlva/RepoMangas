@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS publisher_editions (
   name TEXT NOT NULL,
   PRIMARY KEY (publisher_id, edition_id)
 );
+CREATE TABLE IF NOT EXISTS publishers (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 CREATE INDEX IF NOT EXISTS idx_vol_ed ON volumes(edition_id);
 CREATE INDEX IF NOT EXISTS idx_rel_date ON releases(date);
@@ -90,6 +91,13 @@ export function getDb(): Promise<SQLite.SQLiteDatabase> {
     dbPromise = (async () => {
       const db = await SQLite.openDatabaseAsync('repomangas.db');
       await db.execAsync(SCHEMA);
+      const v = (await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version'))?.user_version ?? 0;
+      if (v < 2) {
+        const cols = await db.getAllAsync<{ name: string }>('PRAGMA table_info(volumes)');
+        if (!cols.some((c) => c.name === 'is_pack')) await db.execAsync('ALTER TABLE volumes ADD COLUMN is_pack INTEGER NOT NULL DEFAULT 0');
+        // v1 scraped unedited volumes by mistake: drop untouched ones and force re-scrape
+        await db.execAsync('DELETE FROM volumes WHERE id NOT IN (SELECT volume_id FROM user_volume_state); UPDATE editions SET scraped_at = 0; PRAGMA user_version = 2;');
+      }
       return db;
     })();
   }

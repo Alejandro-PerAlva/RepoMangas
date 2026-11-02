@@ -34,11 +34,11 @@ export function VolumeSheet({ volume, onClose }: { volume: Volume | null; onClos
           <Btn label={volume.wishlisted ? 'Quiero ✓' : 'Quiero'} kind={volume.wishlisted ? 'amber' : 'default'} icon="star" onPress={() => toggle('wishlisted')} style={s.flex} />
           <Btn label={volume.read ? 'Leído ✓' : 'Leído'} kind={volume.read ? 'green' : 'default'} icon="checkmark-circle" onPress={() => toggle('read')} style={s.flex} />
         </View>
-        <Btn
+        {!volume.is_pack && <Btn
           label={`Tengo y leído hasta el #${volume.number}`} icon="flash"
           onPress={() => { tap(); repo.ownedAndReadUpTo(volume.edition_id, volume.number); onClose(); }}
           style={{ marginTop: 8 }}
-        />
+        />}
       </View>
     </Modal>
   );

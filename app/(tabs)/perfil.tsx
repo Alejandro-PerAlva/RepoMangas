@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useSyncExternalStore } from 'react';
 import { Alert, ScrollView, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import * as Sharing from 'expo-sharing';
@@ -6,7 +6,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system';
 import { useQuery } from '../../src/db/useQuery';
 import * as repo from '../../src/db/repo';
-import { syncAll } from '../../src/services/scraper';
+import { catalogCancel, catalogPause, catalogSnapshot, catalogSubscribe, syncCatalog } from '../../src/services/scraper';
 import { Btn, ProgressBar } from '../../src/components/ui';
 import { C } from '../../src/theme';
 import { eur } from '../../src/lib/filters';
@@ -22,16 +22,8 @@ export default function Perfil() {
   const { data: st } = useQuery(repo.getStats, [], {
     owned: 0, read: 0, value: 0, started: 0, completed: 0, wishNow: 0, wishMonth: 0, wishLater: 0, wishCount: 0,
   });
-  const [prog, setProg] = useState<{ done: number; total: number } | null>(null);
-
-  const full = async () => {
-    setProg({ done: 0, total: 1 });
-    try {
-      const failed = await syncAll((done, total) => setProg({ done, total }));
-      Alert.alert('Catálogo actualizado', failed ? `${failed} series no se pudieron actualizar.` : 'Todo al día.');
-    } catch (e) { Alert.alert('Error', String(e)); }
-    setProg(null);
-  };
+  const cat = useSyncExternalStore(catalogSubscribe, catalogSnapshot);
+  const [refreshActive, setRefreshActive] = useState(false);
 
   const exportDb = async () => {
     try {
@@ -86,13 +78,35 @@ export default function Perfil() {
       </View>
       <View style={{ margin: 4, marginTop: 14, gap: 8 }}>
         <Text style={{ color: C.text, fontWeight: '800', fontSize: 16 }}>Gestión de datos</Text>
-        {prog && (
-          <View>
-            <ProgressBar value={prog.total ? prog.done / prog.total : 0} />
-            <Text style={{ color: C.dim, fontSize: 12, marginTop: 4 }}>{prog.done}/{prog.total} series</Text>
-          </View>
-        )}
-        <Btn label="Sincronización completa / Actualizar catálogo" icon="sync" kind="primary" onPress={full} />
+        <View style={{ backgroundColor: C.card, padding: 12, borderRadius: 12, gap: 8 }}>
+          <Text style={{ color: C.text, fontWeight: '700' }}>Catálogo global de Listado Manga</Text>
+          <Text style={{ color: C.dim, fontSize: 12 }}>
+            Descarga todas las colecciones que aún no tienes guardadas. Se puede pausar o cancelar sin perder lo ya descargado.
+          </Text>
+          {cat.phase !== 'idle' && (
+            <View>
+              <ProgressBar value={cat.total ? cat.done / cat.total : 0} />
+              <Text style={{ color: C.text, fontSize: 12, marginTop: 6 }}>
+                {cat.phase === 'download'
+                  ? `Descargando catálogo global: ${cat.label} — ${cat.done} / ${cat.total} colecciones procesadas${cat.paused ? ' (en pausa)' : '…'}`
+                  : cat.label}
+              </Text>
+              {cat.failed > 0 && <Text style={{ color: C.amber, fontSize: 12 }}>{cat.failed} con error (se reintentarán en la próxima descarga)</Text>}
+            </View>
+          )}
+          {cat.running ? (
+            <View style={{ flexDirection: 'row', gap: 8 }}>
+              <Btn label={cat.paused ? 'Reanudar' : 'Pausar'} icon={cat.paused ? 'play' : 'pause'} onPress={() => catalogPause(!cat.paused)} style={{ flex: 1 }} />
+              <Btn label="Cancelar" icon="stop" kind="danger" onPress={catalogCancel} style={{ flex: 1 }} />
+            </View>
+          ) : (
+            <>
+              <Btn label="Descargar catálogo completo (solo lo que falte)" icon="cloud-download" kind="primary" onPress={() => syncCatalog(refreshActive)} />
+              <Btn label={refreshActive ? '✓ Forzar actualización de series en curso' : 'Forzar actualización de series en curso'} icon="refresh"
+                kind={refreshActive ? 'amber' : 'default'} onPress={() => setRefreshActive((v) => !v)} />
+            </>
+          )}
+        </View>
         <Btn label="Exportar copia (JSON)" icon="download" onPress={exportDb} />
         <Btn label="Importar copia (JSON)" icon="push" onPress={importDb} />
         <Btn label="Limpiar caché de imágenes" icon="trash" onPress={clearImages} />

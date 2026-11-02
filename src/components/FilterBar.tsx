@@ -1,59 +1,59 @@
 import React, { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, Text, View } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { Chip, Btn } from './ui';
-import { C } from '../theme';
-import {
-  DEFAULT_FILTERS, SORT_LABELS, STATE_LABELS, distinct, type CollState, type Filters, type SortKey,
-} from '../lib/filters';
+import { ScrollView, View } from 'react-native';
+import { Chip, PickerModal, type Opt } from './ui';
+import { DEFAULT_FILTERS, SORT_LABELS, STATE_LABELS, distinct, type CollState, type Filters, type SortKey } from '../lib/filters';
 import type { EditionSummary } from '../types';
 
-type Dim = 'publisher' | 'author' | 'genre' | 'format' | 'status';
+type Dim = 'publisher' | 'author' | 'genre' | 'format' | 'status' | 'sort';
 const DIMS: [Dim, string][] = [
-  ['publisher', 'Editorial'], ['author', 'Autor'], ['genre', 'Género'], ['format', 'Formato'], ['status', 'Estado de publicación'],
+  ['publisher', 'Editorial'], ['author', 'Autor'], ['format', 'Formato'], ['status', 'Estado'], ['genre', 'Género'],
 ];
+const rowStyle = { paddingHorizontal: 12, paddingVertical: 4, alignItems: 'center' as const };
 
-export function FilterBar({ filters, onChange, source, showState = true }: {
+export function FilterBar({ filters, onChange, source, showState = true, publishers, authors, onSearchAuthors, authorLoading }: {
   filters: Filters; onChange: (f: Filters) => void; source: EditionSummary[]; showState?: boolean;
+  publishers?: string[]; authors?: string[];
+  onSearchAuthors?: (q: string) => void; authorLoading?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const opts = useMemo(() => distinct(source), [source]);
+  const [dim, setDim] = useState<Dim | null>(null);
+  const local = useMemo(() => distinct(source), [source]);
+  const merge = (a: string[], b?: string[]) => [...new Set([...(b ?? []), ...a])].sort((x, y) => x.localeCompare(y, 'es'));
+  const opts = (d: Dim): Opt[] => {
+    if (d === 'sort') return (Object.keys(SORT_LABELS) as SortKey[]).map((k) => ({ key: k, label: SORT_LABELS[k] }));
+    const base = d === 'publisher' ? merge(local.publisher, publishers) : d === 'author' ? merge(local.author, authors) : local[d];
+    return base.map((o) => ({ key: o, label: o }));
+  };
   const active = DIMS.filter(([d]) => filters[d]).length;
+  const clearAll = () => onChange({ ...DEFAULT_FILTERS, sort: filters.sort, state: filters.state });
   return (
-    <View style={{ paddingTop: 8 }}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12 }}>
-        <Chip label={active ? `Filtros (${active})` : 'Filtros'} icon="options" active={active > 0} onPress={() => setOpen(true)} />
+    <View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={rowStyle}>
+        {DIMS.map(([d, label]) => (
+          <Chip key={d} label={filters[d] ? `${label}: ${filters[d]}` : label} active={!!filters[d]}
+            icon={filters[d] ? 'checkmark' : 'chevron-down'} onPress={() => setDim(d)} />
+        ))}
+        {active > 0 && <Chip label="Limpiar" icon="close" onPress={clearAll} />}
+      </ScrollView>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={rowStyle}>
+        <Chip label={`Orden: ${SORT_LABELS[filters.sort]}`} icon="swap-vertical" onPress={() => setDim('sort')} />
         {showState && (Object.keys(STATE_LABELS) as CollState[]).map((k) => (
           <Chip key={k} label={STATE_LABELS[k]} active={filters.state === k} onPress={() => onChange({ ...filters, state: k })} />
         ))}
       </ScrollView>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12 }}>
-        {(Object.keys(SORT_LABELS) as SortKey[]).map((k) => (
-          <Chip key={k} label={SORT_LABELS[k]} icon="swap-vertical" active={filters.sort === k} onPress={() => onChange({ ...filters, sort: k })} />
-        ))}
-      </ScrollView>
-      <Modal visible={open} animationType="slide" transparent onRequestClose={() => setOpen(false)}>
-        <Pressable style={{ flex: 1, backgroundColor: '#000A' }} onPress={() => setOpen(false)} />
-        <View style={{ backgroundColor: C.card, maxHeight: '75%', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 16 }}>
-          <ScrollView>
-            {DIMS.map(([d, label]) => (
-              <View key={d} style={{ marginBottom: 12 }}>
-                <Text style={{ color: C.text, fontWeight: '800', marginBottom: 8 }}>{label}</Text>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
-                  <Chip label="Todos" active={!filters[d]} onPress={() => onChange({ ...filters, [d]: null })} />
-                  {opts[d].map((o) => (
-                    <Chip key={o} label={o} active={filters[d] === o} onPress={() => onChange({ ...filters, [d]: o })} />
-                  ))}
-                </View>
-              </View>
-            ))}
-          </ScrollView>
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
-            <Btn label="Limpiar" icon="close" onPress={() => onChange({ ...DEFAULT_FILTERS, sort: filters.sort })} style={{ flex: 1 }} />
-            <Btn label="Aplicar" kind="primary" icon="checkmark" onPress={() => setOpen(false)} style={{ flex: 1 }} />
-          </View>
-        </View>
-      </Modal>
+      {dim && (
+        <PickerModal
+          visible
+          title={dim === 'sort' ? 'Ordenar por' : DIMS.find(([d]) => d === dim)![1]}
+          options={opts(dim)}
+          selected={dim === 'sort' ? filters.sort : filters[dim]}
+          searchable={dim === 'publisher' || dim === 'author'}
+          loading={dim === 'author' ? authorLoading : false}
+          onQuery={dim === 'author' ? onSearchAuthors : undefined}
+          allLabel={dim === 'sort' ? null : 'Todos'}
+          onSelect={(k) => onChange({ ...filters, [dim]: dim === 'sort' ? ((k as SortKey) ?? 'alpha') : k })}
+          onClose={() => setDim(null)}
+        />
+      )}
     </View>
   );
 }

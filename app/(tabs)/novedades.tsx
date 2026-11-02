@@ -1,28 +1,55 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, RefreshControl, Text, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { router } from 'expo-router';
 import { useQuery } from '../../src/db/useQuery';
 import * as repo from '../../src/db/repo';
-import { syncNovedades } from '../../src/services/scraper';
+import { syncMonth } from '../../src/services/scraper';
 import { markRelease, tap } from '../../src/lib/actions';
-import { Chip, Cover, Empty } from '../../src/components/ui';
+import { Ionicons } from '@expo/vector-icons';
+import { ActivityIndicator } from 'react-native';
+import { Chip, Cover, Empty, PickerModal } from '../../src/components/ui';
 import { C } from '../../src/theme';
 import { fmtDate } from '../../src/lib/filters';
 import type { ReleaseItem } from '../../src/types';
 
 type Row = { k: string; header?: string; r?: ReleaseItem };
 type When = 'all' | 'shop' | 'soon';
+const MONTH_NAMES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+const key = (y: number, m: number) => `${y}-${String(m).padStart(2, '0')}`;
+const label = (k: string) => `${MONTH_NAMES[parseInt(k.slice(5), 10) - 1]} ${k.slice(0, 4)}`;
 
 export default function Novedades() {
   const [tab, setTab] = useState<'mine' | 'all'>('mine');
   const [when, setWhen] = useState<When>('all');
   const [refreshing, setRefreshing] = useState(false);
+  const now = new Date();
+  const [ym, setYm] = useState(key(now.getFullYear(), now.getMonth() + 1));
+  const [pub, setPub] = useState<string | null>(null);
+  const [pickMonth, setPickMonth] = useState(false);
+  const [pickPub, setPickPub] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+  const shift = (d: number) => {
+    const t = new Date(+ym.slice(0, 4), +ym.slice(5) - 1 + d, 1);
+    setYm(key(t.getFullYear(), t.getMonth() + 1)); setPub(null);
+  };
+  const months = useMemo(() => Array.from({ length: 49 }, (_, i) => {
+    const t = new Date(now.getFullYear(), now.getMonth() + 12 - i, 1);
+    const k = key(t.getFullYear(), t.getMonth() + 1);
+    return { key: k, label: label(k) };
+  }), []); // eslint-disable-line react-hooks/exhaustive-deps
+  const load = useCallback(async (force = false) => {
+    setLoading(true); setError(false);
+    try { await syncMonth(+ym.slice(0, 4), +ym.slice(5), force); } catch { setError(true); }
+    setLoading(false);
+  }, [ym]);
+  useEffect(() => { load(); }, [load]);
   const { data: rel } = useQuery(repo.listReleases, [], []);
   const today = repo.todayISO();
 
   const rows = useMemo<Row[]>(() => {
-    let l = rel.filter((r) => (tab === 'all' ? true : r.mine === 1));
+    let l = rel.filter((r) => r.date.startsWith(ym) && (tab === 'all' ? true : r.mine === 1) && (!pub || r.publisher === pub));
     if (when === 'shop') l = l.filter((r) => r.date <= today);
     if (when === 'soon') l = l.filter((r) => r.date > today);
     const out: Row[] = [];
@@ -41,13 +68,14 @@ export default function Novedades() {
       });
     }
     return out;
-  }, [rel, tab, when, today]);
+  }, [rel, tab, when, today, ym, pub]);
+  const pubOpts = useMemo(() => [...new Set(rel.filter((r) => r.date.startsWith(ym)).map((r) => r.publisher))].sort((a, b) => a.localeCompare(b, 'es')).map((p) => ({ key: p, label: p })), [rel, ym]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
-    await syncNovedades().catch(() => Alert.alert('Sin conexión', 'No se pudieron actualizar las novedades.'));
+    await load(true);
     setRefreshing(false);
-  }, []);
+  }, [load]);
 
   const mark = (r: ReleaseItem, f: 'owned' | 'wishlisted') => {
     tap();
@@ -56,15 +84,30 @@ export default function Novedades() {
 
   return (
     <View style={{ flex: 1 }}>
-      <View style={{ flexDirection: 'row', padding: 12, paddingBottom: 0 }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingTop: 8 }}>
+        <Pressable onPress={() => shift(-1)} hitSlop={10} style={{ padding: 8 }}><Ionicons name="chevron-back" size={24} color={C.text} /></Pressable>
+        <Pressable onPress={() => setPickMonth(true)} style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Text style={{ color: C.text, fontSize: 18, fontWeight: '800' }}>{label(ym)}</Text>
+          <Ionicons name="caret-down" size={14} color={C.dim} style={{ marginLeft: 6 }} />
+          {loading && <ActivityIndicator color={C.accent} style={{ marginLeft: 8 }} />}
+        </Pressable>
+        <Pressable onPress={() => shift(1)} hitSlop={10} style={{ padding: 8 }}><Ionicons name="chevron-forward" size={24} color={C.text} /></Pressable>
+      </View>
+      <View style={{ flexDirection: 'row', padding: 12, paddingBottom: 6 }}>
         <Chip label="De mis series" active={tab === 'mine'} onPress={() => setTab('mine')} />
         <Chip label="Todas las novedades" active={tab === 'all'} onPress={() => setTab('all')} />
       </View>
-      <View style={{ flexDirection: 'row', paddingHorizontal: 12 }}>
+      <View style={{ flexDirection: 'row', paddingHorizontal: 12, paddingBottom: 6, flexWrap: 'wrap', rowGap: 6 }}>
+        <Chip label={pub ? `Editorial: ${pub}` : 'Editorial'} icon="business" active={!!pub} onPress={() => setPickPub(true)} />
         <Chip label="Todo" active={when === 'all'} onPress={() => setWhen('all')} />
         <Chip label="Ya en tiendas" icon="storefront" active={when === 'shop'} onPress={() => setWhen('shop')} />
         <Chip label="Próximamente" icon="time" active={when === 'soon'} onPress={() => setWhen('soon')} />
       </View>
+      {error && <Text style={{ color: C.amber, marginHorizontal: 12, fontSize: 12 }}>Sin conexión: mostrando lo guardado de este mes.</Text>}
+      <PickerModal visible={pickMonth} title="Mes y año" options={months} selected={ym} allLabel={null}
+        onSelect={(k) => { if (k) { setYm(k); setPub(null); } }} onClose={() => setPickMonth(false)} />
+      <PickerModal visible={pickPub} title="Editorial" options={pubOpts} selected={pub} searchable
+        onSelect={setPub} onClose={() => setPickPub(false)} />
       <FlashList
         data={rows}
         keyExtractor={(r) => r.k}

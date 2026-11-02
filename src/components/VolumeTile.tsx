@@ -18,7 +18,7 @@ export const VolumeTile = memo(function VolumeTile({ v, onPress, onLongPress }: 
         {v.wishlisted && !v.owned ? <View style={s.wish}><Ionicons name="star" size={12} color="#111" /></View> : null}
         {v.tag ? <View style={s.tag}><Text style={s.tagT}>NUEVO</Text></View> : null}
       </View>
-      <Text style={[s.num, dim && { opacity: 0.5 }]}>#{v.number}</Text>
+      <Text style={[s.num, dim && { opacity: 0.5 }]} numberOfLines={v.is_pack ? 2 : 1}>{v.is_pack ? v.title : `#${v.number}`}</Text>
     </Pressable>
   );
 });

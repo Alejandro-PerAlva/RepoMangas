@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { Stack, router, useLocalSearchParams } from 'expo-router';
@@ -22,7 +22,9 @@ export default function EditionScreen() {
 
   const { data: ed } = useQuery(() => repo.getEdition(id), [id], null);
   const { data: meta } = useQuery(() => repo.getEditionMeta(id), [id], null);
-  const { data: vols } = useQuery(() => repo.listVolumes(id), [id], [] as Volume[]);
+  const { data: allVols } = useQuery(() => repo.listVolumes(id), [id], [] as Volume[]);
+  const vols = useMemo(() => allVols.filter((v) => !v.is_pack), [allVols]);
+  const packs = useMemo(() => allVols.filter((v) => v.is_pack), [allVols]);
   const { data: authors } = useQuery(() => repo.getEditionAuthors(id), [id], []);
   const firstAuthor = authors[0]?.id;
   const { data: more } = useQuery(
@@ -57,7 +59,7 @@ export default function EditionScreen() {
           </Text>
         </View>
       </View>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginTop: 12 }}>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 12, rowGap: 6 }}>
         {authors.map((a) => <Chip key={a.id} icon="person" label={a.name} onPress={() => router.push(`/author/${a.id}`)} />)}
         {ed.publisher_id && ed.publisher ? <Chip icon="business" label={ed.publisher} onPress={() => router.push(`/publisher/${ed.publisher_id}`)} /> : null}
         {ed.format ? <Chip icon="book" label={`${ed.format}${ed.size ? ` ${ed.size}` : ''}`} onPress={() => router.push({ pathname: '/explorar', params: { format: ed.format! } })} /> : null}
@@ -83,7 +85,21 @@ export default function EditionScreen() {
     </View>
   ) : null;
 
-  const footer = more.length ? (
+  const footer = (
+    <View>
+      {packs.length > 0 && (
+        <View>
+          <SectionTitle>Packs y Cofres Especiales</SectionTitle>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 2 }}>
+            {packs.map((v) => (
+              <View key={v.id} style={{ width: '33.33%' }}>
+                <VolumeTile v={v} onPress={onPress} onLongPress={onLong} />
+              </View>
+            ))}
+          </View>
+        </View>
+      )}
+      {more.length > 0 && (
     <View>
       <SectionTitle>Más obras de este autor</SectionTitle>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 12 }}>
@@ -96,7 +112,9 @@ export default function EditionScreen() {
       </ScrollView>
       <View style={{ height: 30 }} />
     </View>
-  ) : null;
+      )}
+    </View>
+  );
 
   return (
     <View style={{ flex: 1 }}>
@@ -116,7 +134,7 @@ export default function EditionScreen() {
         onRefresh={() => load(true)}
         contentContainerStyle={{ paddingHorizontal: 7 }}
       />
-      <VolumeSheet volume={sel ? vols.find((v) => v.id === sel.id) ?? sel : null} onClose={() => setSel(null)} />
+      <VolumeSheet volume={sel ? allVols.find((v) => v.id === sel.id) ?? sel : null} onClose={() => setSel(null)} />
     </View>
   );
 }

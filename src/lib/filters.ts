@@ -33,7 +33,7 @@ export const progress = (e: EditionSummary) => (total(e) ? e.owned_count / total
 export function applyFilters(list: EditionSummary[], f: Filters, q = ''): EditionSummary[] {
   const s = q.trim().toLowerCase();
   const out = list.filter((e) => {
-    if (s && !(e.name.toLowerCase().includes(s) || (e.authors ?? '').toLowerCase().includes(s))) return false;
+    if (s && !(e.name.toLowerCase().includes(s) || (e.authors ?? '').toLowerCase().includes(s) || (e.publisher ?? '').toLowerCase().includes(s))) return false;
     if (f.publisher && e.publisher !== f.publisher) return false;
     if (f.author && !(e.authors ?? '').includes(f.author)) return false;
     if (f.genre && e.genre !== f.genre) return false;

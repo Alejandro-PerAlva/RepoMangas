@@ -94,33 +94,52 @@ export function parseEdition(html: string, id: number): ParsedEdition | null {
   const es = esF?.text.match(/\d+/);
 
   const volumes: ParsedVolume[] = [];
-  const cells = findAll(
-    (e) => e.name === 'td' && hasClass(e, 'cen') &&
-      findAll((x) => x.name === 'img' && hasClass(x, 'portada'), getChildren(e)).length > 0, doc.children);
-  cells.forEach((td, idx) => {
+  type Sec = 'regular' | 'pack' | 'skip';
+  let sec: Sec = 'skip';
+  const used = new Set<number>();
+  const nodes = findAll(
+    (e) => e.name === 'h2' || (e.name === 'td' && hasClass(e, 'cen') &&
+      findAll((x) => x.name === 'img' && hasClass(x, 'portada'), getChildren(e)).length > 0), doc.children);
+  let idx = 0;
+  for (const td of nodes) {
+    if (td.name === 'h2') {
+      const h = text(td).toLowerCase();
+      if (h.startsWith('n\u00fameros editados') || h.startsWith('n\u00fameros en preparaci')) {
+        sec = /\((ediciones especiales|packs?|portadas alternativas)/.test(h) ? 'pack' : 'regular';
+      } else sec = 'skip';
+      continue;
+    }
+    if (sec === 'skip') continue;
     const img = findAll((x) => x.name === 'img' && hasClass(x, 'portada'), getChildren(td))[0];
-    const segs = segments(td).map((s) => clean(s.map((n) => textContent(n)).join('')));
-    const lines = segs.filter(Boolean);
-    const title = lines[0] ?? (img.attribs.alt ?? '');
-    const num = (title + ' ' + (img.attribs.alt ?? '')).match(/n[º°o]\s*(\d+)/i);
+    const lines = segments(td).map((sg) => clean(sg.map((n) => textContent(n)).join(''))).filter(Boolean);
+    let title = lines[0] ?? (img.attribs.alt ?? '');
+    const num = (title + ' ' + (img.attribs.alt ?? '')).match(/n[\u00ba\u00b0o]\s*(\d+)/i);
     let pages: number | null = null;
     let price: number | null = null;
     let date: string | null = null;
+    const extra: string[] = [];
     for (const l of lines.slice(1)) {
-      const pm = l.match(/(\d+)\s*p[aá]g/i);
-      const pr = l.match(/([\d.]+,\d{1,2}|\d+)\s*€/);
+      const pm = l.match(/(\d+)\s*p[a\u00e1]g/i);
+      const pr = l.match(/([\d.]+,\d{1,2}|\d+)\s*\u20ac/);
       if (pm) pages = parseInt(pm[1], 10);
       else if (pr) price = parseFloat(pr[1].replace(/\./g, '').replace(',', '.'));
-      else date = parseSpanishDate(l) ?? date;
+      else if (parseSpanishDate(l)) date = parseSpanishDate(l);
+      else extra.push(l);
     }
-    volumes.push({
-      number: num ? parseInt(num[1], 10) : idx + 1,
-      title, release_date: date, price, pages, cover_url: img.attribs.src ?? null,
-    });
-  });
+    const isPack = sec === 'pack' || /\b(pack|cofre|estuche|box\s?set|pack de inicio)\b/i.test(title + ' ' + extra.join(' '));
+    let number: number;
+    if (isPack) {
+      if (extra.length) title = `${title} \u2013 ${extra.join(' ')}`;
+      number = 1000 + (hash(title + (img.attribs.src ?? '')) % 900000);
+      while (used.has(number)) number++;
+    } else number = num ? parseInt(num[1], 10) : ++idx;
+    if (!isPack) idx = Math.max(idx, number);
+    used.add(number);
+    volumes.push({ number, title, release_date: date, price, pages, cover_url: img.attribs.src ?? null, is_pack: isPack ? 1 : 0 });
+  }
 
-  // synopsis (if any "Sinopsis"/"Argumento" field)
-  const syn = f('Sinopsis') ?? f('Argumento');
+  const synH = findAll((e) => e.name === 'h2' && text(e).startsWith('Sinopsis de'), doc.children)[0];
+  const synText = synH?.parent ? text((synH.parent as Element).children.filter((c) => c !== synH)).trim() : '';
 
   return {
     id, name, work_title,
@@ -135,9 +154,15 @@ export function parseEdition(html: string, id: number): ParsedEdition | null {
     total_jp: jp ? parseInt(jp[0], 10) : null,
     total_es: es ? parseInt(es[0], 10) : null,
     status: esF ? parseStatus(esF.text) : 'Desconocido',
-    synopsis: syn?.text ?? null,
+    synopsis: synText || null,
     volumes: dedupe(volumes),
   };
+}
+
+function hash(str: string): number {
+  let h = 7;
+  for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0;
+  return h;
 }
 
 function dedupe(v: ParsedVolume[]): ParsedVolume[] {
@@ -152,9 +177,14 @@ export function parseCalendar(html: string): ParsedRelease[] {
     (e) => e.name === 'h2' || (e.name === 'div' && hasClass(e, 'rotulo')) || e.name === 'a', doc.children);
   const out: ParsedRelease[] = [];
   let publisher = '';
+  let publisherId: number | null = null;
   let date: string | null = null;
   for (const n of nodes) {
-    if (n.name === 'h2') publisher = text(n);
+    if (n.name === 'h2') {
+      publisher = text(n);
+      const pa = findAll((x) => x.name === 'a', getChildren(n))[0];
+      publisherId = idFrom(pa?.attribs.href, /editorial=(\d+)/);
+    }
     else if (n.name === 'div') {
       const t = text(n);
       if (/\d{1,2}\s+\p{L}+\s+\d{4}/u.test(t)) date = parseSpanishDate(t);
@@ -164,7 +194,7 @@ export function parseCalendar(html: string): ParsedRelease[] {
       if (eid && img) {
         const title = clean(img.attribs.alt ?? '');
         const num = title.match(/n[º°o]\s*(\d+)\s*$/i);
-        out.push({ edition_id: eid, title, number: num ? parseInt(num[1], 10) : null, date, publisher, cover_url: img.attribs.src ?? null });
+        out.push({ edition_id: eid, title, number: num ? parseInt(num[1], 10) : null, date, publisher, publisher_id: publisherId, cover_url: img.attribs.src ?? null });
       }
     }
   }
